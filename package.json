@@ -1,11 +1,16 @@
 {
   "name": "mafia",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Mafia party game for 4-8 players: online tables on claude.ai plus one-device pass-and-play.",
+  "description": "Mafia party game for 4-8 players. Create a room, share the code, everyone plays on their own phone.",
   "scripts": {
     "build": "node build.js",
     "test": "node test/engine.test.js",
     "test:e2e": "node build.js && node test/e2e.js"
+  },
+  "devDependencies": {
+    "express": "^4.21.0",
+    "peer": "1.0.2",
+    "playwright": "^1.47.0"
   }
 }

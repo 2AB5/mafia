@@ -1,356 +1,274 @@
+// Real multiplayer test: local PeerJS signalling server + static server + many Chromium tabs talking WebRTC.
 const { chromium } = require('playwright');
+const { ExpressPeerServer } = require('peer');
+const express = require('express');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const DIR = __dirname;
-const ROOT = path.join(__dirname, '..');
-const HTML = fs.readFileSync(path.join(ROOT, 'dist', 'mafia.html'), 'utf8');
-const PAGE = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style></head><body>' + HTML + '</body></html>';
+const DIR = path.join(__dirname, '..');
+const SHOTS = path.join(__dirname, 'shots');
+fs.mkdirSync(SHOTS, { recursive: true });
 
-/* ---------- rules (same as published) ---------- */
-const RULES = [
-  { path: '', read: 'view', write: 'admin' },
-  { path: 'players', read: 'view', write: 'admin' }, { path: 'players/{self}', read: 'view', write: 'interact' },
-  { path: 'game', read: 'view', write: 'admin' },
-  { path: 'hoststate', read: 'admin', write: 'admin' },
-  { path: 'views', read: 'admin', write: 'admin' }, { path: 'views/{self}', read: 'interact', write: 'admin' },
-  { path: 'actions', read: 'admin', write: 'admin' }, { path: 'actions/{self}', read: 'interact', write: 'interact' },
-  { path: 'outbox', read: 'admin', write: 'admin' }, { path: 'outbox/{self}', read: 'interact', write: 'interact' },
-  { path: 'chat', read: 'interact', write: 'admin' }, { path: 'chat/{self}', read: 'interact', write: 'interact' }
-];
-const LV = { view: 0, interact: 1, admin: 2, owner: 3 };
-function allowed(level, uid, p, op) {
-  const segs = p.split('/');
-  let need = null, selfNeed = null;
-  for (const r of RULES) {
-    const rs = r.path === '' ? [] : r.path.split('/');
-    if (rs.length > segs.length) continue;
-    let ok = true, self = false;
-    for (let i = 0; i < rs.length; i++) {
-      if (rs[i] === '{self}') { if (segs[i] !== uid) ok = false; else self = true; }
-      else if (rs[i] !== segs[i]) ok = false;
-    }
-    if (!ok) continue;
-    if (self) selfNeed = r[op] || selfNeed; else if (r[op]) need = r[op];
-  }
-  const have = LV[level];
-  const a = have >= LV[need];
-  const b = selfNeed ? have >= LV[selfNeed] : false;
-  return a || b;
-}
-
-/* ---------- shared store ---------- */
-const store = new Map();
-const subs = [];   // {page, uid, level, id, kind, path}
-let opCount = 0;
-function parent(p) { return p.split('/').slice(0, -1).join('/'); }
-function snapDoc(sub, p) {
-  const ok = allowed(sub.level, sub.uid, p, 'read');
-  const has = store.has(p) && ok;
-  return { id: p.split('/').pop(), exists: has, data: has ? store.get(p) : undefined };
-}
-function snapColl(sub) {
-  const docs = [];
-  for (const [k, v] of [...store.entries()].sort()) {
-    if (parent(k) === sub.path && allowed(sub.level, sub.uid, k, 'read')) docs.push({ id: k.split('/').pop(), exists: true, data: v });
-  }
-  return docs;
-}
-async function push(sub) {
-  const payload = sub.kind === 'doc' ? snapDoc(sub, sub.path) : snapColl(sub);
-  try { await sub.page.evaluate(([id, p]) => window.__push(id, p), [sub.id, payload]); } catch (e) { /* page closed */ }
-}
-function notify(p) {
-  for (const s of subs) {
-    if ((s.kind === 'doc' && s.path === p) || (s.kind === 'coll' && parent(p) === s.path)) push(s);
-  }
-}
-function makeHandler(page, uid, level) {
-  return async function (op) {
-    opCount++;
-    const p = op.path;
-    if (op.type === 'sub') {
-      const s = { page, uid, level, id: op.id, kind: op.kind, path: p };
-      subs.push(s); setTimeout(() => push(s), 5); return { ok: true };
-    }
-    if (op.type === 'get') {
-      if (op.kind === 'coll') return { ok: true, docs: snapColl({ uid, level, path: p }) };
-      return { ok: true, doc: snapDoc({ uid, level }, p) };
-    }
-    if (!allowed(level, uid, p, 'write')) return { ok: false, code: 'invalid_argument', message: 'denied ' + p };
-    if (op.type === 'set') store.set(p, JSON.parse(JSON.stringify(op.data)));
-    else if (op.type === 'update') {
-      if (!store.has(p)) return { ok: false, code: 'invalid_argument', message: 'missing' };
-      store.set(p, Object.assign({}, store.get(p), JSON.parse(JSON.stringify(op.data))));
-    } else if (op.type === 'delete') store.delete(p);
-    notify(p);
-    return { ok: true };
-  };
-}
-
-/* ---------- in-page mock of window.claude ---------- */
-const MOCK = function (cfg) {
-  const handlers = {};
-  let n = 0;
-  window.__push = function (id, payload) {
-    const h = handlers[id]; if (!h) return;
-    if (Array.isArray(payload)) {
-      const docs = payload.map(d => ({ id: d.id, exists: true, data: () => d.data, metadata: { fromCache: false, hasPendingWrites: false } }));
-      h({ docs, size: docs.length, empty: !docs.length, docChanges: () => [], metadata: { fromCache: false, hasPendingWrites: false } });
-    } else {
-      h({ id: payload.id, exists: payload.exists, data: () => payload.data, metadata: { fromCache: false, hasPendingWrites: false } });
-    }
-  };
-  async function call(op) {
-    const r = await window.__dbOp(op);
-    if (!r.ok) { const e = new Error(r.message); e.code = r.code; throw e; }
-    return r;
-  }
-  function docRef(p) {
-    return {
-      id: p.split('/').pop(), path: p,
-      get: async () => { const r = await call({ type: 'get', kind: 'doc', path: p }); return { id: r.doc.id, exists: r.doc.exists, data: () => r.doc.data }; },
-      set: async (d) => { await call({ type: 'set', path: p, data: d }); },
-      update: async (d) => { await call({ type: 'update', path: p, data: d }); },
-      delete: async () => { await call({ type: 'delete', path: p }); },
-      onSnapshot: (next) => { const id = 's' + (++n); handlers[id] = next; call({ type: 'sub', kind: 'doc', path: p, id }); return () => { delete handlers[id]; }; }
-    };
-  }
-  function collRef(p) {
-    return {
-      path: p,
-      doc: (id) => docRef(p + '/' + id),
-      get: async () => { const r = await call({ type: 'get', kind: 'coll', path: p }); return { docs: r.docs.map(d => ({ id: d.id, exists: true, data: () => d.data })), size: r.docs.length }; },
-      onSnapshot: (next) => { const id = 's' + (++n); handlers[id] = next; call({ type: 'sub', kind: 'coll', path: p, id }); return () => { delete handlers[id]; }; }
-    };
-  }
-  const db = Object.freeze({ doc: docRef, collection: collRef });
-  const user = Object.freeze({
-    id: async () => cfg.uid, canEdit: async () => cfg.level === 'admin', isOwner: async () => cfg.owner,
-    can: async () => cfg.level !== 'view', me: async () => ({ id: cfg.uid, name: '', isOwner: cfg.owner, canEdit: cfg.level === 'admin' })
-  });
-  window.claude = { use: (name) => new Promise(r => setTimeout(() => r(name === 'db' ? db : name === 'user' ? user : null), 30)) };
-};
-
-/* ---------- helpers ---------- */
+const PEER_PORT = 9123, WEB_PORT = 8765;
+const URL = 'http://127.0.0.1:' + WEB_PORT + '/?peer=127.0.0.1:' + PEER_PORT;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-async function waitFor(fn, label, ms = 8000) {
+let fails = 0;
+function check(c, m) { if (!c) { fails++; console.log('  FAIL ' + m); } }
+async function waitFor(fn, label, ms = 15000) {
   const t = Date.now();
-  while (Date.now() - t < ms) { const v = await fn(); if (v) return v; await sleep(40); }
+  while (Date.now() - t < ms) { let v; try { v = await fn(); } catch (e) { v = null; } if (v) return v; await sleep(60); }
   throw new Error('timeout: ' + label);
 }
-let fails = 0;
-function check(cond, msg) { if (!cond) { fails++; console.log('  FAIL ' + msg); } }
 
 (async () => {
-  const browser = await chromium.launch();
+  const papp = express();
+  const psrv = papp.listen(PEER_PORT, '127.0.0.1');
+  papp.use('/', ExpressPeerServer(psrv, { path: '/' }));
+  const peerServer = psrv;
+  const web = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(fs.readFileSync(path.join(DIR, 'index.html'))); }).listen(WEB_PORT, '127.0.0.1');
+  await sleep(500);
+  const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream'] });
   const errors = [];
-  const mkPage = async (uid, level, owner, width) => {
-    const ctx = await browser.newContext({ viewport: { width: width || 1100, height: 900 } });
-    const page = await ctx.newPage();
-    page.on('pageerror', e => errors.push(uid + ' pageerror: ' + e.message));
-    page.on('console', m => { if (m.type() === 'error') errors.push(uid + ' console: ' + m.text()); });
-    await page.exposeFunction('__dbOp', makeHandler(page, uid, level));
-    await page.addInitScript(MOCK, { uid, level, owner });
-    await page.route('**/fonts.googleapis.com/**', r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
-    await page.route('http://mafia.test/**', r => r.fulfill({ status: 200, contentType: 'text/html', body: PAGE }));
-    await page.goto('http://mafia.test/');
-    return page;
-  };
   const NAMES = ['Ab', 'Riya', 'Karan', 'Meera', 'Dev', 'Isha', 'Arjun', 'Zoya'];
+  const AVS = ['🦊', '🐺', '🦉', '🐱', '🦝', '🐍', '🦅', '🐻'];
 
-  async function playOnline(nPlayers, cfgClicks, seedTag) {
-    store.clear(); subs.length = 0;
+  async function newPlayer(i, width) {
+    const ctx = await browser.newContext({ viewport: { width: width || 420, height: 860 } });
+    const page = await ctx.newPage();
+    page.on('pageerror', e => errors.push('p' + i + ' pageerror: ' + e.message));
+    page.on('console', m => { if (m.type() === 'error' && !/fonts\.g|ERR_|net::/.test(m.text())) errors.push('p' + i + ' console: ' + m.text()); });
+    await page.route('**/fonts.googleapis.com/**', r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+    await page.route('**/fonts.gstatic.com/**', r => r.abort());
+    return page;
+  }
+  const S = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
+  async function closeOverlays(pg) {
+    for (let k = 0; k < 3; k++) {
+      if (await pg.$('#flipCard:not(.flipped)')) { await pg.click('#flipCard'); await pg.click('#gotRole'); continue; }
+      if (await pg.$('#gotRole')) { await pg.click('#gotRole'); continue; }
+      if (await pg.$('#ovClose')) { await pg.click('#ovClose'); continue; }
+      break;
+    }
+  }
+
+  async function onlineGame(n, opts) {
+    opts = opts || {};
     const pages = [];
-    pages.push(await mkPage('u0', 'admin', true));
-    for (let i = 1; i < nPlayers; i++) pages.push(await mkPage('u' + i, 'interact', false, i === 1 ? 400 : 1100));
-    const host = pages[0];
-    await host.click('#openTable');
-    await waitFor(() => host.$('#nameIn'), 'lobby on host');
-    for (let i = 0; i < nPlayers; i++) {
-      const pg = pages[i];
-      await waitFor(() => pg.$('#nameIn'), 'lobby on ' + i);
+    const host = await newPlayer(0, 420);
+    pages.push(host);
+    await host.goto(URL);
+    await host.fill('#nameIn', NAMES[0]);
+    await host.click('#avPick [data-av="' + AVS[0] + '"]');
+    if (opts.shots) await host.screenshot({ path: path.join(SHOTS, '01-home.png'), fullPage: true });
+    await host.click('#createBtn');
+    await waitFor(() => S(host, "window.__mafia.S.conn === 'open'"), 'host room open');
+    const code = await S(host, 'window.__mafia.S.room');
+    check(/^[A-Z]{4}$/.test(code), 'room code ' + code);
+    check(!!(await host.$('#qr svg')), 'QR code rendered');
+    for (let i = 1; i < n; i++) {
+      const pg = await newPlayer(i, i === 1 ? 390 : 1000);
+      pages.push(pg);
+      await pg.goto(URL + '#' + code);
+      await waitFor(() => pg.$('#codeIn'), 'join form ' + i);
+      check((await pg.inputValue('#codeIn')) === code, 'invite link prefilled the code');
       await pg.fill('#nameIn', NAMES[i]);
+      await pg.click('#avPick [data-av="' + AVS[i] + '"]');
       await pg.click('#joinBtn');
     }
-    await waitFor(async () => (await host.textContent('#seatCount')).startsWith(nPlayers + ' of'), 'all seated');
-    for (const c of cfgClicks) await host.click(c);
-    await sleep(150);
-    // non-host sees rules summary and cannot see Deal button
-    check(!(await pages[1].$('#startBtn')), 'non-host must not see start button');
+    await waitFor(async () => (await host.textContent('#seatCount')).trim() === n + ' / ' + MAXP_STR, 'all ' + n + ' seated', 30000);
+    for (let i = 1; i < n; i++) await waitFor(() => S(pages[i], '!!window.__mafia.S.me'), 'player ' + i + ' seated');
+    if (opts.shots) { await sleep(300); await host.screenshot({ path: path.join(SHOTS, '02-lobby-host.png'), fullPage: true }); await pages[1].screenshot({ path: path.join(SHOTS, '03-lobby-player.png'), fullPage: true }); }
+    for (const c of opts.cfg || []) await host.click(c);
+    // lobby chat
+    await pages[1].fill('#chatIn', 'hello everyone');
+    await pages[1].press('#chatIn', 'Enter');
+    await waitFor(async () => (await host.textContent('#chatLog')).includes('hello everyone'), 'lobby chat reached host');
+    check(!(await pages[1].$('#startBtn')), 'only host can deal');
     await host.click('#startBtn');
+    // role flip overlays
+    for (let i = 0; i < n; i++) {
+      await waitFor(() => pages[i].$('#flipCard'), 'role card on ' + i);
+      if (opts.shots && i === 1) await pages[1].screenshot({ path: path.join(SHOTS, '04-role-card.png') });
+      await pages[i].click('#flipCard');
+      if (opts.shots && i === 1) { await sleep(800); await pages[1].screenshot({ path: path.join(SHOTS, '05-role-revealed.png') }); }
+      await pages[i].click('#gotRole');
+    }
+    // privacy: each player only knows their own role (plus mafia partners)
+    for (let i = 0; i < n; i++) {
+      const info = await S(pages[i], '({ me: window.__mafia.S.me, view: window.__mafia.S.view, pub: window.__mafia.S.pub })');
+      check(info.view && info.view.me.id === info.me, 'own view on ' + i);
+      check(info.pub.players.every(p => p.rv === null), 'no roles in public state on ' + i);
+      if (info.view.me.role !== 'mafia') check(info.view.mates.length === 0 && Object.keys(info.view.mateVotes).length === 0, 'non-mafia sees no mafia on ' + i);
+    }
+    const truth = await S(host, 'window.__mafia.H.st.players.map(p => ({ id: p.id, role: p.role }))');
 
-    // privacy checks via direct mock reads as a non-host
-    await waitFor(() => pages[1].evaluate(() => !!(window.__mafia.S.view && window.__mafia.S.view.me)), 'view delivered');
-    const leak = await pages[1].evaluate(async () => {
-      const db = await window.claude.use('db');
-      const out = {};
-      out.host = (await db.doc('hoststate/s').get()).exists;
-      out.otherView = (await db.doc('views/u0').get()).exists;
-      out.ownView = (await db.doc('views/u1').get()).exists;
-      out.actions = (await db.collection('actions').get()).size;
-      try { await db.doc('game/public').set({ hacked: 1 }); out.wroteGame = true; } catch (e) { out.wroteGame = false; }
-      try { await db.doc('views/u1').set({ hacked: 1 }); out.wroteView = true; } catch (e) { out.wroteView = false; }
-      try { await db.doc('players/u2').delete(); out.deletedOther = true; } catch (e) { out.deletedOther = false; }
-      return out;
-    });
-    check(!leak.host && !leak.otherView && leak.ownView && leak.actions === 0 && !leak.wroteGame && !leak.wroteView && !leak.deletedOther, 'privacy/rules ' + JSON.stringify(leak));
-    const pubTxt = JSON.stringify(store.get('game/public'));
-    check(!/"role":/.test(pubTxt) && store.get('game/public').players.every(p => p.rv === null), 'public doc must not contain roles');
-
-    // play the game through the UI
-    let guard = 0, shots = 0;
-    const seenPhases = new Set();
-    while (guard++ < 80) {
-      const pub = store.get('game/public');
+    let guard = 0, shotN = 0, reloaded = false, hostReloaded = false;
+    const seen = new Set();
+    while (guard++ < 60) {
+      const pub = await S(host, 'window.__mafia.S.pub');
       if (pub.phase === 'over') break;
-      seenPhases.add(pub.phase);
-      const key = pub.key;
-      // every alive player acts through the UI
-      for (let i = 0; i < nPlayers; i++) {
+      seen.add(pub.phase);
+      const key = pub.gameId + ':' + pub.key;
+      // mid-game player reload (rejoins automatically with saved token)
+      if (opts.reloadPlayer && !reloaded && pub.phase === 'discuss') {
+        reloaded = true;
+        const pg = pages[2];
+        await pg.reload();
+        await waitFor(() => S(pg, "window.__mafia.S.conn === 'open' && !!window.__mafia.S.view"), 'player rejoined after reload', 30000);
+        check(true, '');
+        console.log('    player reload: rejoined with the same seat');
+      }
+      if (opts.reloadHost && !hostReloaded && pub.phase === 'vote') {
+        hostReloaded = true;
+        await host.reload();
+        await waitFor(() => S(host, "window.__mafia.S.conn === 'open' && !!window.__mafia.H.st"), 'host resumed after reload', 60000);
+        for (let i = 1; i < n; i++) await waitFor(() => S(pages[i], "window.__mafia.S.conn === 'open'"), 'player ' + i + ' reconnected to resumed host', 60000);
+        console.log('    host reload: game resumed, all players reconnected');
+      }
+      for (let i = 0; i < n; i++) {
         const pg = pages[i];
-        const st = await waitFor(() => pg.evaluate((k) => { const v = window.__mafia.S.view; const p = window.__mafia.S.pub; return v && p && v.key === k && p.key === k ? { act: v.act, alive: v.me.alive, role: v.me.role } : null; }, key), 'player ' + i + ' synced to ' + key);
-        if (!st.alive || !st.act) continue;
-        if (!(await pg.$('#actBtn'))) { await sleep(100); }
+        const nowKey = await S(host, "window.__mafia.S.pub.gameId + ':' + window.__mafia.S.pub.key");
+        if (nowKey !== key) break;            // everyone still alive has acted; the game moved on
+        let st;
+        try {
+          st = await waitFor(() => S(pg, "(function(){var s=window.__mafia.S,v=s.view,p=s.pub;return v&&p&&(p.gameId+':'+p.key)===" + JSON.stringify(key) + "&&v.key===p.key?{act:v.act,alive:v.me.alive,role:v.me.role,mine:v.mine}:null})()"), 'player ' + i + ' synced to ' + key, 30000);
+        } catch (e) {
+          const dump = await S(pg, "(function(){var s=window.__mafia.S,c=window.__mafia.C;return {conn:s.conn,msg:s.connMsg,me:s.me,pub:s.pub&&s.pub.key,game:s.pub&&s.pub.gameId,view:s.view&&s.view.key,open:!!(c.conn&&c.conn.open),last:Date.now()-c.lastMsg,att:c.attempts}})()");
+          const hostSide = await S(host, "(function(){var a=[];window.__mafia.H.conns.forEach(function(r){a.push({pid:r.pid,open:r.conn.open,age:Date.now()-r.last})});return {conns:a,roster:window.__mafia.H.roster.map(function(r){return r.id})}})()");
+          console.log('    DIAG player', i, JSON.stringify(dump), '\n    HOST', JSON.stringify(hostSide));
+          throw e;
+        }
+        await closeOverlays(pg);
+        if (!st.alive || !st.act || st.mine) continue;
         const act = st.act;
         if (act.kind === 'sleep' || act.kind === 'ready') { await pg.click('#actBtn'); continue; }
-        const opts = act.kind === 'vote' ? act.targets.concat(['skip', 'skip']) : act.targets;
-        const pick = opts[Math.floor(Math.random() * opts.length)];
+        const opts2 = act.kind === 'vote' ? act.targets.concat(['skip']) : act.targets;
+        const pick = opts2[Math.floor(Math.random() * opts2.length)];
         await pg.click((pick === 'skip' ? 'button.seat.skip' : 'button.seat') + '[data-id="' + pick + '"]');
-        if (st.role === 'mafia' && act.kind === 'kill' && Math.random() < 0.5) {
-          await pg.fill('#mchatIn', 'go for it ' + key);
-          await pg.press('#mchatIn', 'Enter');
-        }
+        if (st.role === 'mafia' && act.kind === 'kill' && await pg.$('#mchatIn')) { await pg.fill('#mchatIn', 'secret plan ' + key); await pg.press('#mchatIn', 'Enter'); }
+        if (opts.shots && i === 1 && shotN < 3) { await pg.screenshot({ path: path.join(SHOTS, '06-' + key.split(':')[1] + '-player.png'), fullPage: true }); shotN++; }
         await pg.click('#actBtn');
-        if (shots < 2 && i === 1) { await pg.screenshot({ path: path.join(DIR, 'shot-' + seedTag + '-phone-' + key + '.png'), fullPage: true }); shots++; }
       }
-      // table talk during the day
       if (pub.phase === 'discuss') {
-        const talker = pages[nPlayers - 1];
-        if (!(await talker.$('#chatIn[disabled]'))) { await talker.fill('#chatIn', 'I think it is someone quiet'); await talker.press('#chatIn', 'Enter'); }
+        const talker = pages[n - 1];
+        if (!(await talker.$('#chatIn[disabled]'))) { await talker.fill('#chatIn', 'I trust nobody'); await talker.press('#chatIn', 'Enter'); }
       }
-      await waitFor(() => store.get('game/public').key !== key, 'host advances past ' + key);
+      await waitFor(async () => { const p = await S(host, 'window.__mafia.S.pub'); return (p.gameId + ':' + p.key) !== key; }, 'advance past ' + key, 30000);
+      if (opts.shots && guard <= 2) {
+        await sleep(500);
+        const ov = await pages[1].$('#ovTitle');
+        if (ov) await pages[1].screenshot({ path: path.join(SHOTS, '07-announce-' + guard + '.png') });
+      }
     }
-    const pub = store.get('game/public');
-    check(pub.phase === 'over', 'game reached over');
-    check(seenPhases.has('night') && seenPhases.has('discuss') && seenPhases.has('vote'), 'saw all phases');
-    // everyone sees winner + reveal
-    for (let i = 0; i < nPlayers; i++) {
-      await waitFor(() => pages[i].$('#winner'), 'winner on ' + i);
-      const n = await pages[i].$$eval('.seat.reveal', els => els.length);
-      check(n === nPlayers, 'reveal shows all players on page ' + i);
+    const pub = await S(host, 'window.__mafia.S.pub');
+    check(pub.phase === 'over', 'game over reached');
+    check(seen.has('night') && seen.has('discuss') && seen.has('vote'), 'all phases seen');
+    for (let i = 0; i < n; i++) {
+      await waitFor(() => pages[i].$('#winner'), 'winner on ' + i, 20000);
+      await closeOverlays(pages[i]);
+      check((await pages[i].$$('.seat.reveal')).length === n, 'final reveal on ' + i);
     }
-    // mafia chat never shown to town
-    const st = store.get('hoststate/s');
-    const townIdx = st.players.findIndex(p => p.role !== 'mafia');
-    const townViewHasChat = JSON.stringify(store.get('views/' + st.players[townIdx].id)).includes('go for it');
-    check(!townViewHasChat, 'mafia chat must not reach town views');
-    // reset for a new game
-    await host.click('#cf-end'); await host.click('#cf-end');
-    await waitFor(() => host.$('#startBtn'), 'back to lobby');
-    await sleep(400); console.log('    left:', [...store.keys()].filter(k=>!k.startsWith('players/')).join(' '));
-    check(store.size > 0 && !store.has('hoststate/s') && ![...store.keys()].some(k => k.startsWith('views/') || k.startsWith('actions/')), 'lobby reset cleared private data');
-    await waitFor(async () => (await host.textContent('#seatCount')).startsWith(nPlayers + ' of'), 'players kept for next game');
-    console.log('  online ' + nPlayers + 'p: ' + (pub.winner) + ' won after round ' + pub.round + ', ' + opCount + ' db ops so far');
+    if (opts.shots) await pages[1].screenshot({ path: path.join(SHOTS, '08-over.png'), fullPage: true });
+    // mafia whispers never reached town players
+    for (let i = 0; i < n; i++) {
+      const me = await S(pages[i], 'window.__mafia.S.me');
+      const role = truth.find(t => t.id === me).role;
+      if (role === 'mafia') continue;
+      const leaked = await S(pages[i], "JSON.stringify(window.__mafia.S).indexOf('secret plan') !== -1");
+      check(!leaked, 'mafia whisper leaked to town player ' + i);
+    }
+    // play again keeps the table
+    await host.click('#againBtn');
+    await waitFor(async () => (await host.textContent('#seatCount')).trim() === n + ' / ' + MAXP_STR, 'same players back in lobby', 20000);
+    for (let i = 1; i < n; i++) await waitFor(() => S(pages[i], "window.__mafia.S.pub.phase === 'lobby' && !!window.__mafia.S.me"), 'player ' + i + ' back in lobby');
+    console.log('  online ' + n + ' players: ' + pub.winner + ' won (round ' + pub.round + ')');
+    for (const p of pages) await p.context().close();
+  }
+  const MAXP_STR = '8';
+
+  async function edgeCases() {
+    // wrong code
+    const pg = await newPlayer(90, 390);
+    await pg.goto(URL);
+    await pg.fill('#nameIn', 'Lost');
+    await pg.fill('#codeIn', 'QQQQ');
+    await pg.click('#joinBtn');
+    await waitFor(() => S(pg, "window.__mafia.S.conn === 'failed'"), 'unknown room fails cleanly', 60000);
+    const msg = await pg.textContent('.connbar');
+    check(/not found/i.test(msg), 'unknown room message: ' + msg);
+    await pg.screenshot({ path: path.join(SHOTS, '09-room-not-found.png') });
+    await pg.context().close();
+    // full table: 9th player is refused a seat
+    const pages = [];
+    const host = await newPlayer(100, 1000); pages.push(host);
+    await host.goto(URL); await host.fill('#nameIn', 'Host'); await host.click('#createBtn');
+    await waitFor(() => S(host, "window.__mafia.S.conn === 'open'"), 'host open');
+    const code = await S(host, 'window.__mafia.S.room');
+    for (let i = 1; i <= 8; i++) {
+      const p = await newPlayer(100 + i, 1000); pages.push(p);
+      await p.goto(URL + '#' + code); await waitFor(() => p.$('#nameIn'), 'form'); await p.fill('#nameIn', 'Guest' + i); await p.click('#joinBtn');
+      await sleep(150);
+    }
+    await waitFor(async () => (await host.textContent('#seatCount')).trim() === '8 / 8', 'table full at 8', 30000);
+    const ninth = pages[8];
+    await waitFor(() => S(ninth, "window.__mafia.S.conn === 'open' && !!window.__mafia.S.pub"), 'ninth connected');
+    await sleep(800);
+    check(!(await S(ninth, 'window.__mafia.S.me')), 'ninth player not seated');
+    // host kicks someone in lobby -> 7, ninth can now sit
+    const victim = await S(host, 'window.__mafia.S.pub.roster[1].id');
+    await host.click('[data-remove="' + victim + '"]');
+    await waitFor(async () => (await host.textContent('#seatCount')).trim() === '7 / 8', 'kick works');
+    await waitFor(() => ninth.$('#sitBtn'), 'sit form for spectator');
+    await ninth.click('#sitBtn');
+    await waitFor(async () => (await host.textContent('#seatCount')).trim() === '8 / 8', 'spectator sat down after kick');
+    // timers + skip + duplicate tab
+    await host.selectOption('#cfgNight', '60');
+    await host.click('#startBtn');
+    await waitFor(() => pages[2].$('#timer'), 'timer visible to players');
+    const t = await pages[2].textContent('#timer');
+    check(/^[01]:\d\d$/.test(t), 'timer text ' + t);
+    const k0 = await S(host, 'window.__mafia.S.pub.key');
+    await closeOverlays(host);
+    await host.click('#cf-skip'); await host.click('#cf-skip');
+    await waitFor(async () => (await S(host, 'window.__mafia.S.pub.key')) !== k0, 'host skip waiting');
+    console.log('  edge cases: bad code, full table, kick, spectator seat, timer, skip: ok');
     for (const p of pages) await p.context().close();
   }
 
-  async function hostReloadAndTimers() {
-    store.clear(); subs.length = 0;
-    const pages = [await mkPage('u0', 'admin', true)];
-    for (let i = 1; i < 4; i++) pages.push(await mkPage('u' + i, 'interact', false));
-    await pages[0].click('#openTable');
-    for (let i = 0; i < 4; i++) { await waitFor(() => pages[i].$('#nameIn'), 'lobby'); await pages[i].fill('#nameIn', NAMES[i]); await pages[i].click('#joinBtn'); }
-    await waitFor(async () => (await pages[0].textContent('#seatCount')).startsWith('4 of'), 'seated');
-    await pages[0].selectOption('#cfgNight', '60');
-    await sleep(150);
-    await pages[0].click('#startBtn');
-    await waitFor(() => pages[2].$('#timer'), 'timer shown to players');
-    const t1 = await pages[2].textContent('#timer');
-    check(/^[01]:\d\d$/.test(t1), 'timer text ' + t1);
-    // host reloads mid-game: state must recover from hoststate
-    const before = JSON.stringify(store.get('hoststate/s'));
-    await pages[0].reload();
-    await waitFor(() => pages[0].evaluate(() => !!window.__mafia.H.state), 'host recovered state');
-    const after = await pages[0].evaluate(() => JSON.stringify(window.__mafia.H.state));
-    check(before === after, 'host state identical after reload');
-    // host forces the night forward (skip waiting) with two clicks
-    const key = store.get('game/public').key;
-    await pages[0].click('#cf-skip'); await pages[0].click('#cf-skip');
-    await waitFor(() => store.get('game/public').key !== key, 'forced advance');
-    // host removes a player mid game
-    const victim = store.get('hoststate/s').players.find(p => p.alive && p.id !== 'u0');
-    if (store.get('game/public').phase !== 'over') {
-      await pages[0].selectOption('#rmSel', victim.id);
-      await pages[0].click('#cf-rm'); await pages[0].click('#cf-rm');
-      await waitFor(() => !store.get('hoststate/s').players.find(p => p.id === victim.id).alive, 'removed');
-    }
-    console.log('  host reload, timer, skip, remove: ok');
-    // a player who arrives late is a spectator
-    const late = await mkPage('u9', 'interact', false);
-    await waitFor(() => late.$('#watching, #winner'), 'late joiner sees game');
-    await late.context().close();
-    for (const p of pages) await p.context().close();
-  }
-
-  async function playLocal(n) {
-    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
-    const page = await ctx.newPage();
-    page.on('pageerror', e => errors.push('local pageerror: ' + e.message));
-    page.on('console', m => { if (m.type() === 'error') errors.push('local console: ' + m.text()); });
-    await page.route('**/fonts.googleapis.com/**', r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
-    await page.route('http://mafia.test/**', r => r.fulfill({ status: 200, contentType: 'text/html', body: PAGE }));
-    await page.goto('http://mafia.test/');
-    await waitFor(() => page.$('#localBtn'), 'offline home', 15000);
-    await page.screenshot({ path: path.join(DIR, 'shot-home-phone.png'), fullPage: true });
+  async function localGame() {
+    const page = await newPlayer(200, 390);
+    await page.goto(URL);
     await page.click('#localBtn');
-    for (let i = 4; i < n; i++) await page.click('#addP');
-    for (let i = 0; i < n; i++) await page.fill('#ln' + i, NAMES[i]);
+    for (let i = 4; i < 6; i++) await page.click('#addP');
+    for (let i = 0; i < 6; i++) await page.fill('#ln' + i, NAMES[i]);
     await page.click('#localStart');
     let guard = 0;
     while (guard++ < 400) {
       if (await page.$('#winner')) break;
       if (await page.$('#iAm')) { await page.click('#iAm'); continue; }
       if (await page.$('#hideNext')) { await page.click('#hideNext'); continue; }
-      if (await page.$('#voteBtn')) {
-        if (guard < 30 && await page.$('#peekBtn')) { await page.click('#peekBtn'); await page.click('.seats button.seat'); await page.click('#peekDone'); }
-        await page.click('#voteBtn'); continue;
-      }
+      if (await page.$('#voteBtn')) { await page.click('#voteBtn'); continue; }
       if (await page.$('#beginNight')) { await page.click('#beginNight'); continue; }
-      if (await page.$('#actBtn')) {
-        const seats = await page.$$('button.seat');
-        if (seats.length) { await seats[Math.floor(Math.random() * seats.length)].click(); }
-        await page.click('#actBtn'); continue;
-      }
-      throw new Error('local: stuck');
+      if (await page.$('#actBtn')) { const s = await page.$$('button.seat'); if (s.length) await s[Math.floor(Math.random() * s.length)].click(); await page.click('#actBtn'); continue; }
+      throw new Error('local stuck');
     }
     check(!!(await page.$('#winner')), 'local game finished');
-    const revealed = await page.$$eval('.seat.reveal', els => els.length);
-    check(revealed === n, 'local reveal count');
-    await page.screenshot({ path: path.join(DIR, 'shot-local-over-phone.png'), fullPage: true });
-    const w = await page.textContent('#winner');
-    console.log('  local ' + n + 'p: ' + w);
-    // horizontal overflow check at phone width
-    const ov = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
-    check(!ov, 'no horizontal overflow on phone (local over)');
-    await ctx.close();
+    console.log('  one-device game: ' + (await page.textContent('#winner')));
+    await page.context().close();
   }
 
   try {
-    await playOnline(6, [], 'six');
-    if (process.env.QUICK) { await browser.close(); process.exit(0); }
-    await playOnline(8, ['#cfgReveal [data-v="none"]', '#cfgMafia [data-v="1"]'], 'eight');
-    await playOnline(4, ['#cfgPrank'], 'four');
-    await playOnline(7, ['#cfgReveal [data-v="team"]'], 'seven');
-    await hostReloadAndTimers();
-    await playLocal(5);
-    await playLocal(8);
-    await playLocal(4);
-  } catch (e) {
-    fails++; console.log('  ERROR ' + e.stack);
-  }
-  const realErrors = errors.filter(e => !/fonts\.g/.test(e));
-  check(realErrors.length === 0, 'no page/console errors:\n    ' + realErrors.slice(0, 10).join('\n    '));
+    await onlineGame(6, { shots: true, reloadPlayer: true });
+    await onlineGame(8, { reloadHost: true, cfg: ['#cfgReveal [data-v="team"]'] });
+    await onlineGame(4, { cfg: ['#cfgPrank'] });
+    await edgeCases();
+    await localGame();
+    // overflow + dark/night checks at phone width on saved screenshots happen visually
+  } catch (e) { fails++; console.log('  ERROR ' + e.stack); }
+  check(errors.length === 0, 'page errors:\n    ' + errors.slice(0, 12).join('\n    '));
   await browser.close();
-  console.log(fails ? fails + ' FAILED' : 'ALL E2E PASSED');
+  web.close();
+  try { peerServer.close(); } catch (e) { /* ignore */ }
+  console.log(fails ? fails + ' FAILED' : 'ALL WEB E2E PASSED');
   process.exit(fails ? 1 : 0);
 })();

@@ -1,15 +1,21 @@
-// Builds the single-file game: dist/mafia.html (Claude artifact body) and index.html (standalone page).
+// Builds index.html: a single self-contained page (game + PeerJS + QR code library inlined).
 const fs = require('fs');
 const path = require('path');
-const src = path.join(__dirname, 'src');
-const read = (f) => fs.readFileSync(path.join(src, f), 'utf8');
-const eng = read('engine.js');
-const app = read('app1.js') + '\n' + read('app2.js');
-if (/<\/script/i.test(eng + app)) throw new Error('script close tag inside JS');
-new Function(eng); new Function(app); // syntax check
-const body = read('shell.html').replace('/*__ENGINE__*/', () => eng).replace('/*__APP__*/', () => app);
-fs.mkdirSync(path.join(__dirname, 'dist'), { recursive: true });
-fs.writeFileSync(path.join(__dirname, 'dist', 'mafia.html'), body);
-const page = '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">\n</head>\n<body>\n' + body + '\n</body>\n</html>\n';
-fs.writeFileSync(path.join(__dirname, 'index.html'), page);
-console.log('built index.html and dist/mafia.html');
+const d = __dirname;
+const r = (p) => fs.readFileSync(path.join(d, p), 'utf8');
+const peer = r('vendor/peerjs.min.js').replace(/\/\/# sourceMappingURL=.*$/m, '');
+const qr = r('vendor/qrcode.js');
+const eng = r('src/engine.js');
+const app = ['src/core.js', 'src/net.js', 'src/ui.js'].map(r).join('\n');
+for (const [n, s] of [['peer', peer], ['qr', qr], ['engine', eng], ['app', app]]) {
+  if (/<\/script/i.test(s)) throw new Error('</script> inside ' + n);
+}
+new Function(eng); new Function('"use strict";' + app);
+const out = r('src/index.tpl.html')
+  .replace('/*__CSS__*/', () => r('src/style.css'))
+  .replace('/*__PEERJS__*/', () => peer)
+  .replace('/*__QR__*/', () => qr)
+  .replace('/*__ENGINE__*/', () => eng)
+  .replace('/*__APP__*/', () => app);
+fs.writeFileSync(path.join(d, 'index.html'), out);
+console.log('built index.html', (out.length / 1024).toFixed(0) + ' KB');

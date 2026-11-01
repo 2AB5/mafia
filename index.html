@@ -1,0 +1,2021 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+</head>
+<body>
+<title>Mafia Night Table</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,600;6..96,800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: a single card column like a dealt hand, with a chat rail on wide screens. Night is ink-blue felt, day is warm paper. */
+:root {
+  --bg: #f3efe6;
+  --surface: #fffdf8;
+  --surface2: #ece6d8;
+  --ink: #1d1b22;
+  --muted: #625c6b;
+  --line: #d9d1bf;
+  --accent: #9b1c2c;         /* oxblood */
+  --accent-ink: #ffffff;
+  --gold: #a87414;
+  --town: #24656b;
+  --night: #172036;
+  --night-ink: #e7e9f3;
+  --night-muted: #a7afc8;
+  --danger: #b4231b;
+  --focus: #2a59c9;
+  --shadow: 0 1px 0 rgba(29,27,34,.05), 0 6px 20px -12px rgba(29,27,34,.25);
+  --f-display: "Bodoni Moda", "Didot", "Bodoni 72", Georgia, serif;
+  --f-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --r: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1220; --surface: #171b2c; --surface2: #20263b; --ink: #ece9f2; --muted: #a29fb2; --line: #2c3350;
+    --accent: #e0566a; --accent-ink: #1a0b0f; --gold: #e2b14d; --town: #6cc1c4; --night: #0a0d1a; --night-ink: #e7e9f3;
+    --night-muted: #9aa3c0; --danger: #ff7a6e; --focus: #8fb0ff; --shadow: 0 8px 26px -14px rgba(0,0,0,.7); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1220; --surface: #171b2c; --surface2: #20263b; --ink: #ece9f2; --muted: #a29fb2; --line: #2c3350;
+  --accent: #e0566a; --accent-ink: #1a0b0f; --gold: #e2b14d; --town: #6cc1c4; --night: #0a0d1a; --night-ink: #e7e9f3;
+  --night-muted: #9aa3c0; --danger: #ff7a6e; --focus: #8fb0ff; --shadow: 0 8px 26px -14px rgba(0,0,0,.7); color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--ink); }
+body { font-family: var(--f-body); font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.ico { display: inline-flex; flex: none; }
+
+#app { max-width: 1060px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 40px; }
+.hdr { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 14px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+.hbrand { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--accent); }
+.logo { font-family: var(--f-display); font-weight: 800; font-size: 22px; letter-spacing: .01em; color: var(--ink); }
+.chip { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; padding: 3px 9px; border-radius: 99px; background: var(--surface2); color: var(--muted); white-space: nowrap; }
+.htools { display: flex; align-items: center; gap: 6px; }
+.iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; color: var(--ink); }
+.iconbtn:hover { background: var(--surface2); }
+
+.cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (min-width: 900px) { .cols { grid-template-columns: minmax(0, 1fr) 330px; } .side { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); } }
+.main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.side { min-width: 0; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card h2 { font-family: var(--f-display); font-weight: 600; font-size: 24px; line-height: 1.15; margin: 0; text-wrap: balance; }
+.card h3 { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.card p { margin: 0; }
+.dim { color: var(--muted); }
+.hint { color: var(--muted); font-size: 13px; }
+.small { font-size: 13px; }
+.warn { color: var(--danger); font-size: 14px; }
+.eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+ul.plain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+
+.hero { padding-block: 18px 6px; }
+.hero.small { padding-block: 4px 0; }
+.brand-big { font-family: var(--f-display); font-weight: 800; font-size: clamp(56px, 13vw, 104px); line-height: .9; margin: 0; letter-spacing: -.01em; color: var(--ink); }
+.hero.small .brand-big { font-size: clamp(40px, 9vw, 60px); }
+.brand-big::after { content: "."; color: var(--accent); }
+.tagline { margin: 10px 0 0; color: var(--muted); font-size: 17px; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 10px 18px; border-radius: 11px; border: 1px solid var(--line); background: var(--surface2); cursor: pointer; font-weight: 600; text-align: center; }
+.btn:hover:not([disabled]) { filter: brightness(.97); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.btn.ghost { background: transparent; }
+.btn.danger { background: var(--danger); color: #fff; border-color: transparent; }
+.btn.small { min-height: 34px; padding: 6px 12px; font-size: 13px; }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+.card > .btn { align-self: flex-start; }
+.card > .btn.primary { align-self: stretch; }
+
+input[type=text], select { min-height: 44px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); width: 100%; min-width: 0; }
+.joinrow, .chatform { display: flex; gap: 8px; }
+.joinrow input, .chatform input { flex: 1; }
+.joinrow .btn, .chatform .btn { flex: none; }
+
+/* seats */
+.seats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.seat { display: grid; grid-template-columns: 34px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 10px; align-items: center; padding: 9px 10px; border-radius: 11px; border: 1px solid var(--line); background: var(--bg); text-align: left; min-height: 54px; min-width: 0; }
+.seat .av { grid-row: span 2; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 15px; color: #fff; background: hsl(var(--h) 45% 42%); }
+.seat .sn { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.seat .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seat .sub { grid-column: 2; font-size: 12px; color: var(--muted); }
+.seat .sub.wait { color: var(--gold); }
+.seat .tag { font-style: normal; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 99px; background: var(--surface2); color: var(--muted); }
+.seat .tag.ally { background: var(--accent); color: var(--accent-ink); }
+.seat.dead { opacity: .55; }
+.seat.dead .nm { text-decoration: line-through; }
+.seat.empty { display: flex; justify-content: center; border-style: dashed; background: transparent; color: var(--muted); }
+.seat.empty .nm { font-weight: 500; font-size: 13px; }
+button.seat { cursor: pointer; width: 100%; }
+button.seat.pick:hover { border-color: var(--accent); }
+.seat.sel { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--bg)); }
+.seat:not(.pick):not(.skip)[data-id] { cursor: default; }
+.seat.skip { display: flex; justify-content: center; min-height: 46px; width: 100%; cursor: pointer; }
+.seat.skip .nm { font-weight: 600; }
+.seatwrap { position: relative; min-width: 0; }
+.xbtn { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); display: grid; place-items: center; cursor: pointer; color: var(--muted); }
+.seat.reveal.mafia { border-color: var(--accent); }
+.seat.reveal.mafia .sub { color: var(--accent); font-weight: 600; }
+
+/* banner */
+.banner { border-radius: var(--r); padding: 18px; display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; border: 1px solid var(--line); }
+.banner .bl { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.banner .bt { font-family: var(--f-display); font-weight: 800; font-size: clamp(28px, 6vw, 38px); line-height: 1.05; margin: 0; }
+.banner .bs { margin: 4px 0 0; }
+.banner .bw { margin: 6px 0 0; font-size: 13px; }
+.banner.night { background: var(--night); color: var(--night-ink); border-color: transparent; background-image: radial-gradient(circle at 85% 20%, rgba(255,255,255,.08) 0 1px, transparent 2px), radial-gradient(circle at 70% 60%, rgba(255,255,255,.07) 0 1px, transparent 2px), radial-gradient(circle at 92% 75%, rgba(255,255,255,.06) 0 1px, transparent 2px); }
+.banner.night .bs, .banner.night .bw { color: var(--night-muted); }
+.banner.day { background: var(--surface); }
+.banner.day .ico { color: var(--gold); }
+.banner.day .bs, .banner.day .bw { color: var(--muted); }
+.banner.over { background: var(--surface); }
+.banner.over.mafia { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.banner.over.town { background: var(--town); color: #fff; border-color: transparent; }
+.timer { font-family: var(--f-mono); font-size: 26px; font-variant-numeric: tabular-nums; padding: 4px 12px; border-radius: 10px; background: rgba(127,127,127,.14); }
+.timer.low { color: var(--danger); }
+.banner.night .timer.low { color: #ff9a8f; }
+
+/* role card */
+.card.role { flex-direction: row; align-items: flex-start; gap: 14px; border-width: 1px; }
+.card.role > .ico { color: var(--town); margin-top: 6px; }
+.card.role.mafia { border-color: var(--accent); }
+.card.role.mafia > .ico { color: var(--accent); }
+.rbody { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+.rname { font-size: 34px !important; font-weight: 800 !important; }
+.rblurb { color: var(--muted); max-width: 60ch; }
+.allies strong { color: var(--accent); }
+.rbody .btn { align-self: flex-start; margin-top: 4px; }
+.rolebar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border: 1px dashed var(--line); border-radius: var(--r); }
+.rolebar.mini { justify-content: flex-start; font-weight: 600; border-style: solid; background: var(--surface); }
+
+/* news */
+.news li { padding-left: 14px; position: relative; }
+.news li::before { content: ""; position: absolute; left: 0; top: .6em; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.news li.N::before { background: var(--night); box-shadow: 0 0 0 1px var(--night-muted); }
+.news li.V::before { background: var(--gold); }
+.news li.E::before { background: var(--accent); }
+details summary { cursor: pointer; font-weight: 600; }
+details.ballot, details.history, details.narrator { border-top: 1px solid var(--line); padding-top: 8px; }
+details > ul { margin-top: 8px !important; }
+.how .howrow { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 10px; }
+.how h4 { margin: 0; font-size: 13px; font-weight: 700; color: var(--accent); }
+.how p { margin: 0; color: var(--muted); }
+.how summary { font-family: var(--f-display); font-size: 20px; }
+
+/* config */
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.lbl { font-size: 13px; font-weight: 600; color: var(--muted); }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 12px; background: var(--surface2); }
+.segb { flex: 1 1 auto; min-height: 38px; padding: 6px 12px; border-radius: 9px; border: 0; background: transparent; cursor: pointer; font-weight: 600; color: var(--muted); }
+.segb.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.toggles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.toggle { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 11px; border: 1px solid var(--line); background: var(--bg); cursor: pointer; text-align: left; }
+.toggle .tk { flex: none; width: 34px; height: 20px; border-radius: 99px; background: var(--line); position: relative; transition: background .15s; }
+.toggle .tk::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.toggle.on .tk { background: var(--accent); }
+.toggle.on .tk::after { transform: translateX(14px); }
+.toggle .tl { display: flex; flex-direction: column; font-weight: 600; min-width: 0; }
+.toggle small { font-weight: 400; color: var(--muted); font-size: 12px; }
+.timesel { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.preview { font-weight: 600; padding: 10px 12px; border-radius: 10px; background: var(--surface2); }
+
+/* local */
+.namelist { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.pass { font-size: 18px !important; font-family: var(--f-body) !important; color: var(--muted); }
+.passname { font-family: var(--f-display); font-weight: 800; font-size: clamp(40px, 10vw, 64px); line-height: 1; overflow-wrap: anywhere; }
+
+/* chat */
+.dock { gap: 8px; }
+.dock h2 { font-size: 20px; }
+.chatlog { height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); overflow-wrap: anywhere; }
+.chatlog.small { height: 150px; }
+.msg { font-size: 14px; }
+.msg b { color: var(--accent); }
+.msg.mine b { color: var(--town); }
+.msg.ghost { opacity: .7; font-style: italic; }
+.mchat { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.mates li { font-size: 14px; }
+
+.err { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 11px; background: color-mix(in srgb, var(--danger) 12%, var(--surface)); border: 1px solid var(--danger); color: var(--ink); }
+
+@media (max-width: 480px) {
+  .card { padding: 15px; }
+  .seats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .how .howrow { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .joinrow { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+<div id="app"></div>
+<script>
+/* ===== Mafia engine: pure rules, no DOM, JSON-safe state ===== */
+const Engine = (function () {
+  'use strict';
+
+  const MIN_PLAYERS = 4;
+  const MAX_PLAYERS = 8;
+
+  const ROLES = {
+    mafia:     { label: 'Mafia',     team: 'mafia', kind: 'kill'  },
+    doctor:    { label: 'Doctor',    team: 'town',  kind: 'save'  },
+    police:    { label: 'Police',    team: 'town',  kind: 'check' },
+    prankster: { label: 'Prankster', team: 'town',  kind: 'prank' },
+    civilian:  { label: 'Civilian',  team: 'town',  kind: 'sleep' }
+  };
+
+  /* ---------- config ---------- */
+  function defaultConfig() {
+    return {
+      mafia: 'auto',        // 'auto' | 1 | 2
+      doctor: true,
+      police: true,
+      prankster: true,
+      reveal: 'role',       // what everyone learns when a player is out: 'role' | 'team' | 'none'
+      nightSecs: 0,         // 0 = wait for everyone
+      discussSecs: 0,
+      voteSecs: 0
+    };
+  }
+
+  function secs(v) {
+    const n = Math.floor(Number(v));
+    return isFinite(n) && n > 0 ? Math.min(n, 900) : 0;
+  }
+
+  function normalizeConfig(c) {
+    const d = defaultConfig();
+    c = c || {};
+    const m = c.mafia === 'auto' || c.mafia === undefined ? 'auto' : Number(c.mafia);
+    return {
+      mafia: m === 1 || m === 2 ? m : 'auto',
+      doctor: c.doctor === undefined ? d.doctor : !!c.doctor,
+      police: c.police === undefined ? d.police : !!c.police,
+      prankster: c.prankster === undefined ? d.prankster : !!c.prankster,
+      reveal: c.reveal === 'team' || c.reveal === 'none' ? c.reveal : 'role',
+      nightSecs: secs(c.nightSecs),
+      discussSecs: secs(c.discussSecs),
+      voteSecs: secs(c.voteSecs)
+    };
+  }
+
+  function maxMafia(n) { return n >= 6 ? 2 : 1; }
+
+  function buildRoles(n, cfgIn) {
+    const cfg = normalizeConfig(cfgIn);
+    const notes = [];
+    let m = cfg.mafia === 'auto' ? (n <= 5 ? 1 : 2) : cfg.mafia;
+    if (m > maxMafia(n)) {
+      m = maxMafia(n);
+      notes.push('Mafia limited to ' + m + ' with ' + n + ' players.');
+    }
+    const specials = [];
+    if (cfg.doctor) specials.push('doctor');
+    if (cfg.police) specials.push('police');
+    if (cfg.prankster) specials.push('prankster');
+    while (m + specials.length > n) {
+      const dropped = specials.pop();
+      notes.push(ROLES[dropped].label + ' left out: not enough players.');
+    }
+    const roles = [];
+    for (let i = 0; i < m; i++) roles.push('mafia');
+    specials.forEach(function (s) { roles.push(s); });
+    while (roles.length < n) roles.push('civilian');
+    const counts = {};
+    roles.forEach(function (r) { counts[r] = (counts[r] || 0) + 1; });
+    return { roles: roles, counts: counts, notes: notes };
+  }
+
+  /* ---------- helpers ---------- */
+  function shuffle(arr, rng) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+    return arr;
+  }
+
+  function P(st, id) {
+    for (let i = 0; i < st.players.length; i++) if (st.players[i].id === id) return st.players[i];
+    return null;
+  }
+
+  function aliveList(st) { return st.players.filter(function (p) { return p.alive; }); }
+
+  function uniqueNames(players) {
+    const seen = {};
+    return players.map(function (p) {
+      let base = String(p.name == null ? '' : p.name).replace(/\s+/g, ' ').trim().slice(0, 16) || 'Player';
+      let name = base, i = 2;
+      while (seen[name.toLowerCase()]) { name = base.slice(0, 13) + ' ' + i; i++; }
+      seen[name.toLowerCase()] = true;
+      return { id: p.id, name: name };
+    });
+  }
+
+  function phaseKey(st) {
+    const c = st.phase === 'night' ? 'N' : st.phase === 'discuss' ? 'T' : st.phase === 'vote' ? 'V' : st.phase === 'over' ? 'X' : 'L';
+    return c + st.round;
+  }
+
+  function armTimer(st, now) {
+    const s = st.phase === 'night' ? st.cfg.nightSecs
+      : st.phase === 'discuss' ? st.cfg.discussSecs
+      : st.phase === 'vote' ? st.cfg.voteSecs : 0;
+    st.dl = s > 0 && now ? now + s * 1000 : null;
+  }
+
+  function addLog(st, ph, x) {
+    st.log.push({ r: st.round, ph: ph, x: x });
+    if (st.log.length > 120) st.log.splice(0, st.log.length - 120);
+  }
+
+  function addNote(st, id, x) {
+    if (!st.notes[id]) st.notes[id] = [];
+    st.notes[id].push({ r: st.round, x: x });
+  }
+
+  function revealText(st, p) {
+    if (st.cfg.reveal === 'role') return ' Role: ' + ROLES[p.role].label + '.';
+    if (st.cfg.reveal === 'team') return ' Team: ' + (p.role === 'mafia' ? 'Mafia' : 'Town') + '.';
+    return '';
+  }
+
+  /* ---------- creation ---------- */
+  function newGame(opts) {
+    const rng = opts.rng || Math.random;
+    const cleaned = uniqueNames(opts.players);
+    const n = cleaned.length;
+    if (n < MIN_PLAYERS || n > MAX_PLAYERS) throw new Error('Mafia needs ' + MIN_PLAYERS + ' to ' + MAX_PLAYERS + ' players.');
+    const ids = {};
+    cleaned.forEach(function (p) {
+      if (ids[p.id]) throw new Error('Duplicate player id.');
+      ids[p.id] = true;
+    });
+    const cfg = normalizeConfig(opts.cfg);
+    const roles = shuffle(buildRoles(n, cfg).roles.slice(), rng);
+    const st = {
+      v: 1,
+      gameId: opts.gameId,
+      cfg: cfg,
+      phase: 'night',
+      round: 1,
+      players: cleaned.map(function (p, i) {
+        return { id: p.id, name: p.name, role: roles[i], alive: true, out: null };
+      }),
+      sub: {},
+      lastSaved: null,
+      intel: [],
+      notes: {},
+      log: [],
+      ballot: null,
+      recap: [],
+      mafiaChat: [],
+      relay: {},
+      winner: null,
+      dl: null,
+      seq: 0
+    };
+    armTimer(st, opts.now);
+    return st;
+  }
+
+  /* ---------- actions ---------- */
+  function actionFor(st, p) {
+    if (!p || !p.alive) return null;
+    const alive = aliveList(st);
+    if (st.phase === 'night') {
+      const kind = ROLES[p.role].kind;
+      if (kind === 'sleep') return { kind: kind, targets: [], blocked: {} };
+      if (kind === 'kill') {
+        return { kind: kind, blocked: {}, targets: alive.filter(function (x) { return x.role !== 'mafia'; }).map(function (x) { return x.id; }) };
+      }
+      if (kind === 'save') {
+        const blocked = {};
+        let targets = alive.map(function (x) { return x.id; });
+        if (st.lastSaved && targets.indexOf(st.lastSaved) !== -1) {
+          blocked[st.lastSaved] = 'protected last night';
+          targets = targets.filter(function (id) { return id !== st.lastSaved; });
+        }
+        return { kind: kind, targets: targets, blocked: blocked };
+      }
+      return { kind: kind, blocked: {}, targets: alive.filter(function (x) { return x.id !== p.id; }).map(function (x) { return x.id; }) };
+    }
+    if (st.phase === 'discuss') return { kind: 'ready', targets: [], blocked: {} };
+    if (st.phase === 'vote') {
+      return { kind: 'vote', skip: true, blocked: {}, targets: alive.filter(function (x) { return x.id !== p.id; }).map(function (x) { return x.id; }) };
+    }
+    return null;
+  }
+
+  function submit(st, pid, a) {
+    if (st.phase !== 'night' && st.phase !== 'discuss' && st.phase !== 'vote') return { ok: false, error: 'inactive' };
+    const p = P(st, pid);
+    if (!p || !p.alive) return { ok: false, error: 'not-alive' };
+    if (!a || typeof a.t !== 'string') return { ok: false, error: 'bad-action' };
+    const act = actionFor(st, p);
+    if (a.t !== act.kind) return { ok: false, error: 'wrong-action' };
+    if (act.kind === 'sleep' || act.kind === 'ready') {
+      st.sub[pid] = { t: a.t };
+      return { ok: true };
+    }
+    if (act.kind === 'vote' && a.to === 'skip') {
+      st.sub[pid] = { t: 'vote', to: 'skip' };
+      return { ok: true };
+    }
+    if (typeof a.to !== 'string' || act.targets.indexOf(a.to) === -1) return { ok: false, error: 'bad-target' };
+    st.sub[pid] = { t: a.t, to: a.to };
+    return { ok: true };
+  }
+
+  function pendingIds(st) {
+    if (st.phase !== 'night' && st.phase !== 'discuss' && st.phase !== 'vote') return [];
+    return aliveList(st).filter(function (p) { return !st.sub[p.id]; }).map(function (p) { return p.id; });
+  }
+
+  function ready(st) {
+    if (st.phase !== 'night' && st.phase !== 'discuss' && st.phase !== 'vote') return false;
+    return aliveList(st).length > 0 && pendingIds(st).length === 0;
+  }
+
+  /* ---------- win check ---------- */
+  function checkWin(st) {
+    const alive = aliveList(st);
+    const mafia = alive.filter(function (p) { return p.role === 'mafia'; }).length;
+    const town = alive.length - mafia;
+    if (mafia === 0) st.winner = 'town';
+    else if (mafia >= town) st.winner = 'mafia';
+    if (st.winner) {
+      st.phase = 'over';
+      st.sub = {};
+      addLog(st, 'E', st.winner === 'town'
+        ? 'Town wins. Every Mafia member is out.'
+        : 'Mafia wins. They now match the town.');
+    }
+    return st.winner;
+  }
+
+  /* ---------- resolution ---------- */
+  function resolveNight(st, rng) {
+    const r = st.round;
+    const subs = st.sub;
+    const find = function (role) {
+      for (let i = 0; i < st.players.length; i++) if (st.players[i].alive && st.players[i].role === role) return st.players[i];
+      return null;
+    };
+    const mafia = st.players.filter(function (p) { return p.alive && p.role === 'mafia'; });
+    const prank = find('prankster');
+    const doc = find('doctor');
+    const cop = find('police');
+    const nm = function (id) { const q = P(st, id); return q ? q.name : '?'; };
+    const liveTarget = function (id) { const q = id ? P(st, id) : null; return q && q.alive ? q : null; };
+
+    // 1. Prankster
+    let blockedId = null;
+    if (prank && subs[prank.id] && subs[prank.id].t === 'prank' && liveTarget(subs[prank.id].to)) blockedId = subs[prank.id].to;
+    if (blockedId) {
+      const bp = P(st, blockedId);
+      if (bp.role === 'mafia' || bp.role === 'doctor' || bp.role === 'police') {
+        addNote(st, blockedId, 'The Prankster got to you last night. Your action had no effect.');
+      }
+    }
+
+    // 2. Mafia vote
+    const tally = {};
+    mafia.forEach(function (m) {
+      const s = subs[m.id];
+      if (!s || s.t !== 'kill' || m.id === blockedId) return;
+      const t = liveTarget(s.to);
+      if (!t || t.role === 'mafia') return;
+      tally[t.id] = (tally[t.id] || 0) + 1;
+    });
+    let target = null, tie = false;
+    const ids = Object.keys(tally);
+    if (ids.length) {
+      const max = Math.max.apply(null, ids.map(function (k) { return tally[k]; }));
+      const top = ids.filter(function (k) { return tally[k] === max; });
+      tie = top.length > 1;
+      target = top.length === 1 ? top[0] : top[Math.floor(rng() * top.length)];
+    }
+    if (tie) {
+      mafia.forEach(function (m) { addNote(st, m.id, 'Your team was split, so the target was picked at random.'); });
+    }
+
+    // 3. Doctor
+    let saved = null;
+    let docBlocked = false;
+    if (doc && subs[doc.id] && subs[doc.id].t === 'save') {
+      if (doc.id === blockedId) docBlocked = true;
+      else if (liveTarget(subs[doc.id].to)) saved = subs[doc.id].to;
+    }
+
+    // 4. Police
+    let copResult = null, copBlocked = false;
+    if (cop && subs[cop.id] && subs[cop.id].t === 'check') {
+      if (cop.id === blockedId) copBlocked = true;
+      else {
+        const t = liveTarget(subs[cop.id].to);
+        if (t) {
+          copResult = { to: t.id, res: t.role === 'mafia' ? 'mafia' : 'clear' };
+          st.intel.push({ r: r, to: t.id, res: copResult.res });
+        }
+      }
+    }
+
+    st.lastSaved = saved;
+
+    // 5. Kill
+    let died = null;
+    if (target && target !== saved) {
+      const t = P(st, target);
+      t.alive = false;
+      t.out = { ph: 'N', r: r };
+      died = t;
+    }
+
+    // log + recap
+    if (died) addLog(st, 'N', died.name + ' was killed in the night.' + revealText(st, died));
+    else addLog(st, 'N', 'Nobody was killed last night.');
+
+    const rec = [];
+    rec.push(target ? 'Mafia targeted ' + nm(target) + (tie ? ' (split vote, random pick).' : '.') : 'Mafia picked no one.');
+    if (doc && subs[doc.id]) rec.push(docBlocked ? 'The Doctor was pranked.' : (saved ? 'The Doctor protected ' + nm(saved) + '.' : 'The Doctor protected no one.'));
+    if (cop && subs[cop.id]) rec.push(copBlocked ? 'The Police were pranked.' : (copResult ? 'The Police checked ' + nm(copResult.to) + ': ' + (copResult.res === 'mafia' ? 'Mafia' : 'not Mafia') + '.' : 'The Police checked no one.'));
+    if (blockedId) rec.push('The Prankster pranked ' + nm(blockedId) + '.');
+    rec.push(died ? nm(died.id) + ' died.' : 'Nobody died.');
+    st.recap.push('Night ' + r + ': ' + rec.join(' '));
+
+    st.sub = {};
+    if (!checkWin(st)) st.phase = 'discuss';
+  }
+
+  function resolveVote(st) {
+    const alive = aliveList(st);
+    const counts = {};
+    let cast = 0;
+    const rows = [];
+    alive.forEach(function (p) {
+      const s = st.sub[p.id];
+      if (s && s.t === 'vote' && s.to && s.to !== 'skip') {
+        const t = P(st, s.to);
+        if (t && t.alive && t.id !== p.id) {
+          counts[t.id] = (counts[t.id] || 0) + 1;
+          cast++;
+          rows.push({ from: p.id, to: t.id });
+          return;
+        }
+      }
+      rows.push({ from: p.id, to: s && s.to === 'skip' ? 'skip' : null });
+    });
+    const skip = alive.length - cast;
+    const options = Object.keys(counts).map(function (id) { return { id: id, c: counts[id] }; });
+    options.push({ id: 'skip', c: skip });
+    const max = Math.max.apply(null, options.map(function (o) { return o.c; }));
+    const top = options.filter(function (o) { return o.c === max; });
+    let outcome, lynched = null;
+    if (top.length > 1) outcome = 'tie';
+    else if (top[0].id === 'skip') outcome = 'skip';
+    else { outcome = 'lynch'; lynched = top[0].id; }
+
+    const r = st.round;
+    st.ballot = { r: r, rows: rows, outcome: outcome, lynched: lynched };
+    const nm = function (id) { return id === 'skip' ? 'skip' : id == null ? 'no vote' : P(st, id).name; };
+    st.recap.push('Day ' + r + ' vote: ' + rows.map(function (w) { return nm(w.from) + ' → ' + nm(w.to); }).join(', ') + '. ' +
+      (outcome === 'lynch' ? nm(lynched) + ' was voted out.' : outcome === 'tie' ? 'Tie, nobody voted out.' : 'Skipped, nobody voted out.'));
+
+    if (outcome === 'lynch') {
+      const t = P(st, lynched);
+      t.alive = false;
+      t.out = { ph: 'V', r: r };
+      addLog(st, 'V', t.name + ' was voted out.' + revealText(st, t));
+    } else if (outcome === 'tie') {
+      addLog(st, 'V', 'The vote was tied. Nobody is voted out.');
+    } else {
+      addLog(st, 'V', 'The town chose to skip. Nobody is voted out.');
+    }
+
+    st.sub = {};
+    if (!checkWin(st)) {
+      st.round = r + 1;
+      st.phase = 'night';
+    }
+  }
+
+  function advance(st, rng, now) {
+    rng = rng || Math.random;
+    if (st.phase === 'night') resolveNight(st, rng);
+    else if (st.phase === 'discuss') { st.phase = 'vote'; st.sub = {}; }
+    else if (st.phase === 'vote') resolveVote(st);
+    else return st;
+    st.seq++;
+    armTimer(st, now);
+    return st;
+  }
+
+  function removePlayer(st, pid) {
+    const p = P(st, pid);
+    if (!p || !p.alive || st.phase === 'over') return false;
+    p.alive = false;
+    p.out = { ph: 'X', r: st.round };
+    delete st.sub[pid];
+    addLog(st, 'X', p.name + ' left the table.' + revealText(st, p));
+    st.seq++;
+    checkWin(st);
+    return true;
+  }
+
+  /* ---------- views ---------- */
+  function rvOf(st, p) {
+    if (st.phase === 'over') return p.role;
+    if (p.alive) return null;
+    if (st.cfg.reveal === 'role') return p.role;
+    if (st.cfg.reveal === 'team') return p.role === 'mafia' ? 'mafia' : 'town';
+    return null;
+  }
+
+  function publicView(st) {
+    const over = st.phase === 'over';
+    return {
+      v: 1,
+      gameId: st.gameId,
+      phase: st.phase,
+      round: st.round,
+      key: phaseKey(st),
+      cfg: st.cfg,
+      players: st.players.map(function (p) { return { id: p.id, name: p.name, alive: p.alive, rv: rvOf(st, p) }; }),
+      pending: pendingIds(st),
+      dl: st.dl,
+      log: st.log.slice(-60),
+      ballot: st.ballot,
+      winner: st.winner,
+      recap: over ? st.recap.slice() : null,
+      seq: st.seq
+    };
+  }
+
+  function playerView(st, id) {
+    const p = P(st, id);
+    if (!p) return null;
+    const v = {
+      v: 1,
+      gameId: st.gameId,
+      key: phaseKey(st),
+      phase: st.phase,
+      round: st.round,
+      me: { id: p.id, name: p.name, role: p.role, alive: p.alive },
+      act: null,
+      mine: null,
+      mates: [],
+      mateVotes: {},
+      mchat: [],
+      intel: [],
+      notes: []
+    };
+    if (st.phase !== 'over') {
+      v.act = actionFor(st, p);
+      v.mine = st.sub[id] || null;
+    }
+    if (p.role === 'mafia') {
+      v.mates = st.players.filter(function (x) { return x.role === 'mafia' && x.id !== id; })
+        .map(function (x) { return { id: x.id, name: x.name, alive: x.alive }; });
+      if (st.phase === 'night') {
+        v.mates.forEach(function (m) {
+          const s = st.sub[m.id];
+          if (m.alive && s && s.t === 'kill') v.mateVotes[m.id] = s.to;
+        });
+      }
+      v.mchat = st.mafiaChat.slice(-50);
+    }
+    if (p.role === 'police') v.intel = st.intel.slice();
+    v.notes = (st.notes[id] || []).slice(-12);
+    return v;
+  }
+
+  return {
+    MIN_PLAYERS: MIN_PLAYERS,
+    MAX_PLAYERS: MAX_PLAYERS,
+    ROLES: ROLES,
+    defaultConfig: defaultConfig,
+    normalizeConfig: normalizeConfig,
+    buildRoles: buildRoles,
+    maxMafia: maxMafia,
+    newGame: newGame,
+    phaseKey: phaseKey,
+    actionFor: actionFor,
+    submit: submit,
+    pendingIds: pendingIds,
+    ready: ready,
+    advance: advance,
+    removePlayer: removePlayer,
+    armTimer: armTimer,
+    playerView: playerView,
+    publicView: publicView,
+    uniqueNames: uniqueNames,
+    P: P
+  };
+})();
+
+if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
+
+</script>
+<script>
+(function () {
+'use strict';
+const E = Engine;
+const MINP = E.MIN_PLAYERS, MAXP = E.MAX_PLAYERS;
+
+/* ================= helpers ================= */
+function h(tag, props) {
+  const el = document.createElement(tag);
+  if (props) {
+    Object.keys(props).forEach(function (k) {
+      const v = props[k];
+      if (v === null || v === undefined || v === false) return;
+      if (k === 'class') el.className = v;
+      else if (k === 'text') el.textContent = v;
+      else if (k === 'value') el.value = v;
+      else if (k === 'checked') el.checked = !!v;
+      else if (k === 'dataset') Object.keys(v).forEach(function (d) { el.dataset[d] = v[d]; });
+      else if (k.slice(0, 2) === 'on' && typeof v === 'function') el.addEventListener(k.slice(2), v);
+      else if (v === true) el.setAttribute(k, '');
+      else el.setAttribute(k, String(v));
+    });
+  }
+  for (let i = 2; i < arguments.length; i++) add(el, arguments[i]);
+  return el;
+}
+function add(el) {
+  for (let i = 1; i < arguments.length; i++) {
+    const kid = arguments[i];
+    if (kid === null || kid === undefined || kid === false) continue;
+    if (Array.isArray(kid)) { kid.forEach(function (k) { add(el, k); }); continue; }
+    el.appendChild(typeof kid === 'object' ? kid : document.createTextNode(String(kid)));
+  }
+}
+function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+const clone = function (o) { return JSON.parse(JSON.stringify(o)); };
+const sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+function secureRng() {
+  try { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] / 4294967296; }
+  catch (e) { return Math.random(); }
+}
+function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function store(k, v) {
+  try {
+    if (v === undefined) return localStorage.getItem('mafia.' + k);
+    if (v === null) localStorage.removeItem('mafia.' + k); else localStorage.setItem('mafia.' + k, v);
+  } catch (e) { /* storage may be unavailable */ }
+  return null;
+}
+function cleanName(s) { return String(s || '').replace(/\s+/g, ' ').trim().slice(0, 16); }
+function mmss(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
+}
+function hue(id) {
+  let x = 2166136261;
+  for (let i = 0; i < id.length; i++) { x ^= id.charCodeAt(i); x = Math.imul(x, 16777619); }
+  x ^= x >>> 13; x = Math.imul(x, 0x5bd1e995); x ^= x >>> 15;
+  return ((x >>> 0) % 24) * 15;
+}
+function errText(e) {
+  const c = e && e.code;
+  if (c === 'invalid_argument') return 'That change was not allowed. You may need contributor access to this page.';
+  if (c === 'resource_exhausted') return 'Too many requests at once. Wait a moment and try again.';
+  if (c === 'quota_exceeded') return 'This page’s storage is full.';
+  if (c === 'revoked') return 'Your access to this page changed. Reload to continue.';
+  return 'Something went wrong. ' + ((e && e.message) || '');
+}
+
+/* ================= icons ================= */
+const ICON = {
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/>',
+  mafia: '<path d="M3 16.5h18"/><path d="M6.5 16.5c0-5.2 1.6-9 5.5-9s5.5 3.8 5.5 9"/><path d="M6.9 13h10.2"/>',
+  doctor: '<path d="M9.5 3.5h5v6h6v5h-6v6h-5v-6h-6v-5h6z"/>',
+  police: '<path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.5l-5.4 3 1.2-6L3.3 9.3l6.1-.7z"/>',
+  prankster: '<circle cx="12" cy="12" r="9"/><path d="M8.5 10h.01M15.5 10h.01"/><path d="M8 14.5c1 1.8 2.4 2.5 4 2.5s3-.7 4-2.5"/>',
+  civilian: '<circle cx="12" cy="8" r="3.6"/><path d="M5 20c0-4 3-6.5 7-6.5s7 2.5 7 6.5"/>',
+  vol: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/>',
+  mute: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.6 2.2c-.8.4-1.2 1-1.2 1.9"/><path d="M12 17h.01"/>',
+  theme: '<circle cx="12" cy="12" r="9"/><path d="M12 3v18"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  skull: '<path d="M12 3.5c-4.3 0-7 2.8-7 6.4 0 2.2 1 3.7 2.5 4.6V18h9v-3.5c1.5-.9 2.5-2.4 2.5-4.6 0-3.6-2.7-6.4-7-6.4z"/><path d="M9.2 11h.01M14.8 11h.01M10.5 18v2M13.5 18v2"/>'
+};
+function icon(name, size) {
+  const s = document.createElement('span');
+  s.className = 'ico';
+  s.setAttribute('aria-hidden', 'true');
+  const n = size || 20;
+  s.innerHTML = '<svg viewBox="0 0 24 24" width="' + n + '" height="' + n + '" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + ICON[name] + '</svg>';
+  return s;
+}
+
+/* ================= copy ================= */
+const ROLE_TXT = {
+  mafia:     { title: 'Mafia',     blurb: 'Each night your team picks someone to eliminate. By day, blend in and stay out of trouble.' },
+  doctor:    { title: 'Doctor',    blurb: 'Each night, protect one player from the Mafia. You may protect yourself, but not the same person two nights in a row.' },
+  police:    { title: 'Police',    blurb: 'Each night, investigate one player to learn whether they are Mafia. Use what you learn carefully.' },
+  prankster: { title: 'Prankster', blurb: 'Each night, prank one player. Whatever power they tried to use that night fails.' },
+  civilian:  { title: 'Civilian',  blurb: 'You have no night power. Your voice and your vote are your weapons.' }
+};
+const KIND_TXT = {
+  kill:  { title: 'Choose a target', prompt: 'Pick who the Mafia eliminates tonight. If your team splits, the target is chosen at random between the picks.', btn: 'Lock in target' },
+  save:  { title: 'Protect someone', prompt: 'Pick who you protect tonight.', btn: 'Lock in protection' },
+  check: { title: 'Investigate', prompt: 'Pick who you investigate tonight. You learn whether they are Mafia at dawn.', btn: 'Lock in investigation' },
+  prank: { title: 'Pull a prank', prompt: 'Pick who you prank tonight. Their night action will fail.', btn: 'Lock in prank' },
+  vote:  { title: 'Cast your vote', prompt: 'Pick who should be voted out, or skip. Players who do not vote count as skipping.', btn: 'Cast vote' }
+};
+const HOW = [
+  ['Goal', 'Town wins when every Mafia member is out. Mafia wins when it has as many players left as the town.'],
+  ['Night', 'Everyone acts in secret at the same time. Mafia picks a victim, the Doctor protects, Police investigate, the Prankster blocks one player. Civilians just sleep, so nobody can tell who has a role.'],
+  ['Day', 'The night’s result is announced. Talk it out, then vote. A player is voted out only if they have more votes than any other option. Skip and abstentions count together. Ties send nobody out.'],
+  ['Roles', 'Mafia, Doctor, Police, Prankster and Civilians. The host picks which special roles are in play and what is revealed when someone is out.']
+];
+
+/* ================= sound ================= */
+let actx = null;
+function tone(freq, dur, type, vol, delay) {
+  if (!S.sound) return;
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    const t = actx.currentTime + (delay || 0);
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol || 0.07, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(t); o.stop(t + dur + 0.05);
+  } catch (e) { /* audio is optional */ }
+}
+const SFX = {
+  click: function () { tone(520, 0.07, 'triangle', 0.04); },
+  night: function () { tone(196, 0.5, 'sine', 0.08); tone(147, 0.8, 'sine', 0.07, 0.25); },
+  day:   function () { tone(392, 0.25, 'triangle', 0.07); tone(523, 0.4, 'triangle', 0.07, 0.18); },
+  kill:  function () { tone(110, 0.45, 'sawtooth', 0.05); tone(82, 0.6, 'sawtooth', 0.04, 0.15); },
+  vote:  function () { tone(330, 0.12, 'square', 0.035); tone(247, 0.2, 'square', 0.035, 0.1); },
+  win:   function () { [523, 659, 784, 1047].forEach(function (f, i) { tone(f, 0.3, 'triangle', 0.07, i * 0.14); }); },
+  lose:  function () { [392, 330, 262, 196].forEach(function (f, i) { tone(f, 0.35, 'sawtooth', 0.045, i * 0.18); }); }
+};
+
+/* ================= state ================= */
+const S = {
+  boot: true,
+  online: false,
+  db: null, user: null, me: null,
+  canEdit: false, canWrite: null,
+  mode: 'auto',               // 'auto' | 'local'
+  pub: null, pubAt: 0, pubLoaded: false,
+  roster: [],
+  view: null,
+  chats: {},
+  err: '',
+  name: store('name') || '',
+  nameDraft: store('name') || '',
+  sel: null, sent: null,
+  roleOpen: true, roleSeenFor: '',
+  confirm: null, rmSel: '',
+  sound: store('sound') !== '0',
+  lastKey: '',
+  hostLost: false,
+  busy: false
+};
+const L = { data: null };      // local pass-and-play game container (set in app2)
+let render = function () {};   // assigned in app2
+let renderDock = function () {}; // assigned in app2
+
+function setErr(e) {
+  S.err = typeof e === 'string' ? e : errText(e);
+  try { console.error(e); } catch (x) { /* ignore */ }
+  render();
+}
+
+/* ================= online layer ================= */
+const H = { state: null, actions: {}, outbox: {}, q: Promise.resolve(), written: new Map(), loading: false, tick: null };
+
+function isHost() { return !!(S.pub && S.me && S.pub.hostId === S.me); }
+function inGame() { return !!(S.pub && S.pub.players && S.pub.players.some(function (p) { return p.id === S.me; })); }
+function pubPlayer(id) { return S.pub && S.pub.players ? S.pub.players.find(function (p) { return p.id === id; }) : null; }
+function nameOf(id) {
+  const p = pubPlayer(id);
+  if (p) return p.name;
+  const r = S.roster.find(function (x) { return x.id === id; });
+  if (r) return r.name || 'Player';
+  return 'Player';
+}
+
+async function withRetry(fn) {
+  try { return await fn(); }
+  catch (e) {
+    if (e && e.code === 'unavailable') { await sleep(300 + Math.random() * 500); return await fn(); }
+    throw e;
+  }
+}
+
+async function initOnline() {
+  let db = null, user = null;
+  try {
+    if (window.claude && window.claude.use) {
+      const r = await Promise.all([window.claude.use('db'), window.claude.use('user')]);
+      db = r[0]; user = r[1];
+    }
+  } catch (e) { db = null; }
+  S.db = db; S.user = user;
+  try {
+    if (user) {
+      S.me = await user.id();
+      S.canEdit = !!(await user.canEdit());
+      S.canWrite = await user.can('data.write');
+    }
+  } catch (e) { /* identity unavailable */ }
+  S.online = !!(db && S.me);
+  S.boot = false;
+  if (!S.online) { render(); return; }
+
+  const onErr = function (e) { setErr(e); };
+  db.doc('game/public').onSnapshot(function (snap) {
+    S.pub = snap.exists ? snap.data() : null;
+    S.pubAt = Date.now();
+    S.pubLoaded = true;
+    onPub();
+    render();
+  }, onErr);
+  db.collection('players').onSnapshot(function (snap) {
+    S.roster = snap.docs.map(function (d) { const v = d.data() || {}; return { id: d.id, name: v.name || 'Player', ts: v.ts || 0 }; })
+      .sort(function (a, b) { return a.ts - b.ts || (a.id < b.id ? -1 : 1); });
+    render();
+  }, onErr);
+  db.doc('views/' + S.me).onSnapshot(function (snap) {
+    S.view = snap.exists ? snap.data() : null;
+    render();
+  }, onErr);
+  db.collection('chat').onSnapshot(function (snap) {
+    const m = {};
+    snap.docs.forEach(function (d) { m[d.id] = d.data(); });
+    S.chats = m;
+    renderDock();
+  }, onErr);
+  if (S.canEdit) {
+    db.collection('actions').onSnapshot(function (snap) {
+      const m = {};
+      snap.docs.forEach(function (d) { m[d.id] = d.data(); });
+      H.actions = m;
+      if (isHost() && H.state) hostEnqueue(hostIngest);
+    }, onErr);
+    db.collection('outbox').onSnapshot(function (snap) {
+      const m = {};
+      snap.docs.forEach(function (d) { m[d.id] = d.data(); });
+      H.outbox = m;
+      if (isHost() && H.state) hostEnqueue(hostIngest);
+    }, onErr);
+  }
+  render();
+}
+
+function onPub() {
+  if (!isHost()) { H.state = null; return; }
+  if (!H.tick) H.tick = setInterval(hostTick, 1000);
+  if (S.pub.phase === 'lobby') { H.state = null; return; }
+  if (!H.state && !H.loading) {
+    H.loading = true;
+    hostEnqueue(loadHostState);
+  }
+}
+
+/* ---------- player-side writes ---------- */
+async function joinTable(rawName) {
+  let nm = cleanName(rawName);
+  if (!nm) { setErr('Enter a name to take a seat.'); return; }
+  const taken = {};
+  S.roster.forEach(function (r) { if (r.id !== S.me) taken[r.name.toLowerCase()] = true; });
+  let base = nm, i = 2;
+  while (taken[nm.toLowerCase()]) { nm = base.slice(0, 13) + ' ' + i; i++; }
+  S.name = nm; S.nameDraft = nm; store('name', nm);
+  try {
+    await withRetry(function () { return S.db.doc('players/' + S.me).set({ name: nm, ts: Date.now() }); });
+  } catch (e) { setErr(e); }
+}
+async function leaveTable() {
+  try { await withRetry(function () { return S.db.doc('players/' + S.me).delete(); }); }
+  catch (e) { setErr(e); }
+}
+async function sendAction(view, a) {
+  const key = view.gameId + ':' + view.key;
+  const body = { key: key, t: a.t, ts: Date.now() };
+  if (a.to) body.to = a.to;
+  await withRetry(function () { return S.db.doc('actions/' + S.me).set(body); });
+}
+
+const chatQ = {};
+function chatWrite(path, field, msg, cap) {
+  const prev = chatQ[path] || Promise.resolve();
+  const next = prev.catch(function () {}).then(function () {
+    return S.db.doc(path).get().then(function (snap) {
+      const cur = snap.exists && Array.isArray((snap.data() || {})[field]) ? snap.data()[field].slice() : [];
+      cur.push(msg);
+      const body = { name: S.name || 'Player' };
+      body[field] = cur.slice(-cap);
+      return S.db.doc(path).set(body);
+    });
+  });
+  chatQ[path] = next;
+  return next;
+}
+async function sendChat(text) {
+  text = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  if (!text || !S.online) return;
+  const dead = inGame() && pubPlayer(S.me) && !pubPlayer(S.me).alive;
+  const msg = { t: Date.now(), x: text };
+  if (dead) msg.g = 1;
+  try { await chatWrite('chat/' + S.me, 'msgs', msg, 60); } catch (e) { setErr(e); }
+}
+async function sendMafiaChat(text) {
+  text = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  if (!text || !S.online) return;
+  try { await chatWrite('outbox/' + S.me, 'msgs', { t: Date.now(), x: text }, 30); } catch (e) { setErr(e); }
+}
+
+/* ---------- host runtime ---------- */
+function hostEnqueue(fn) {
+  H.q = H.q.then(fn).catch(function (e) { setErr(e); });
+  return H.q;
+}
+async function hostWrite(path, obj, force) {
+  const json = JSON.stringify(obj);
+  if (!force && H.written.get(path) === json) return;
+  await withRetry(function () { return S.db.doc(path).set(JSON.parse(json)); });
+  H.written.set(path, json);
+}
+async function hostCommit(force) {
+  const st = H.state;
+  if (!st) return;
+  await hostWrite('hoststate/s', st, force);
+  for (let i = 0; i < st.players.length; i++) {
+    await hostWrite('views/' + st.players[i].id, E.playerView(st, st.players[i].id), force);
+  }
+  const pv = E.publicView(st);
+  pv.hostId = S.me;
+  pv.hostName = S.name || '';
+  pv.at = Date.now();
+  await hostWrite('game/public', pv, true);
+}
+async function loadHostState() {
+  try {
+    const snap = await withRetry(function () { return S.db.doc('hoststate/s').get(); });
+    if (snap.exists && isHost()) {
+      H.state = clone(snap.data());
+      S.hostLost = false;
+      H.written.clear();
+      await hostCommit(true);
+      await hostIngest();
+    } else if (isHost()) {
+      S.hostLost = true;
+    }
+  } finally {
+    H.loading = false;
+    render();
+  }
+}
+async function deleteAll(coll) {
+  const snap = await withRetry(function () { return S.db.collection(coll).get(); });
+  for (let i = 0; i < snap.docs.length; i++) {
+    const id = snap.docs[i].id;
+    await withRetry(function () { return S.db.doc(coll + '/' + id).delete(); });
+  }
+}
+function hostOpenLobby(keepCfg) {
+  return hostEnqueue(async function () {
+    H.state = null;
+    H.written.clear();
+    S.hostLost = false;
+    const cfg = keepCfg && S.pub ? S.pub.cfg : null;
+    const pub = {
+      v: 1, gameId: newId(), hostId: S.me, hostName: S.name || '', phase: 'lobby', round: 0, key: 'L0',
+      cfg: E.normalizeConfig(cfg), players: [], pending: [], dl: null, log: [], ballot: null,
+      winner: null, recap: null, seq: 0, at: Date.now()
+    };
+    // Close the old table first so nobody keeps acting on stale data.
+    await withRetry(function () { return S.db.doc('game/public').set(pub); });
+    await deleteAll('actions');
+    await deleteAll('views');
+    await deleteAll('outbox');
+    await deleteAll('chat');
+    await withRetry(function () { return S.db.doc('hoststate/s').delete(); });
+    S.view = null; S.sent = null; S.sel = null;
+  });
+}
+function hostSetCfg(patch) {
+  return hostEnqueue(async function () {
+    if (!S.pub || S.pub.phase !== 'lobby' || !isHost()) return;
+    const cfg = E.normalizeConfig(Object.assign({}, S.pub.cfg, patch));
+    await withRetry(function () { return S.db.doc('game/public').update({ cfg: cfg, at: Date.now() }); });
+  });
+}
+function hostStart() {
+  return hostEnqueue(async function () {
+    if (!S.pub || S.pub.phase !== 'lobby' || !isHost()) return;
+    const roster = S.roster.slice();
+    if (roster.length < MINP) { S.err = 'You need at least ' + MINP + ' players.'; render(); return; }
+    if (roster.length > MAXP) { S.err = 'The table holds ' + MAXP + ' players. Remove ' + (roster.length - MAXP) + '.'; render(); return; }
+    const st = E.newGame({
+      gameId: S.pub.gameId,
+      players: roster.map(function (r) { return { id: r.id, name: r.name }; }),
+      cfg: S.pub.cfg, rng: secureRng, now: Date.now()
+    });
+    H.state = st;
+    H.written.clear();
+    S.hostLost = false;
+    await hostCommit(true);
+    await hostIngest();
+  });
+}
+async function hostIngest() {
+  const st = H.state;
+  if (!st || st.phase === 'over' || !isHost()) return;
+  const key = st.gameId + ':' + E.phaseKey(st);
+  let subChanged = false, chatChanged = false;
+  st.players.forEach(function (p) {
+    if (!p.alive) return;
+    const a = H.actions[p.id];
+    if (!a || a.key !== key) return;
+    const cur = st.sub[p.id];
+    if (cur && cur.t === a.t && (cur.to || null) === (a.to || null)) return;
+    if (E.submit(st, p.id, { t: a.t, to: a.to }).ok) subChanged = true;
+  });
+  st.players.forEach(function (m) {
+    if (m.role !== 'mafia' || !m.alive) return;
+    const d = H.outbox[m.id];
+    if (!d || !Array.isArray(d.msgs)) return;
+    const last = st.relay[m.id] || 0;
+    let maxT = last;
+    d.msgs.forEach(function (x) {
+      if (!x || typeof x.x !== 'string' || typeof x.t !== 'number' || x.t <= last) return;
+      if (x.t > maxT) maxT = x.t;
+      if (st.phase !== 'night') return;
+      const txt = x.x.replace(/\s+/g, ' ').trim().slice(0, 300);
+      if (txt) { st.mafiaChat.push({ f: m.id, t: x.t, x: txt }); chatChanged = true; }
+    });
+    if (maxT !== last) { st.relay[m.id] = maxT; chatChanged = true; }
+  });
+  if (st.mafiaChat.length > 80) st.mafiaChat.splice(0, st.mafiaChat.length - 80);
+  if (subChanged && E.ready(st)) E.advance(st, secureRng, Date.now());
+  if (subChanged || chatChanged) await hostCommit();
+}
+function hostForce() {
+  return hostEnqueue(async function () {
+    const st = H.state;
+    if (!st || st.phase === 'over' || !isHost()) return;
+    E.advance(st, secureRng, Date.now());
+    await hostCommit();
+  });
+}
+function hostTick() {
+  const st = H.state;
+  if (!st || !isHost() || st.phase === 'over' || !st.dl) return;
+  if (Date.now() >= st.dl) {
+    hostEnqueue(async function () {
+      const s = H.state;
+      if (!s || s.phase === 'over' || !s.dl || Date.now() < s.dl) return;
+      E.advance(s, secureRng, Date.now());
+      await hostCommit();
+    });
+  }
+}
+function hostRemove(id) {
+  return hostEnqueue(async function () {
+    if (!isHost()) return;
+    const st = H.state;
+    if (!st) {
+      await withRetry(function () { return S.db.doc('players/' + id).delete(); });
+      return;
+    }
+    if (!E.removePlayer(st, id)) return;
+    if (st.phase !== 'over' && E.ready(st)) E.advance(st, secureRng, Date.now());
+    await hostCommit();
+  });
+}
+
+
+/* ================= UI building blocks ================= */
+let root, hdrEl, mainEl, dockEl, chatLogEl, chatForm, chatIn, chatHint, dockTitle;
+
+function card() {
+  const c = h('section', { class: 'card' });
+  for (let i = 0; i < arguments.length; i++) add(c, arguments[i]);
+  return c;
+}
+function btn(label, fn, o) {
+  o = o || {};
+  return h('button', {
+    type: 'button', class: 'btn ' + (o.kind || ''), id: o.id, disabled: o.disabled,
+    onclick: function (e) { if (o.disabled) return; fn(e); }
+  }, label);
+}
+function confirmBtn(key, label, confirmLabel, run, kind) {
+  const armed = S.confirm === key;
+  return btn(armed ? confirmLabel : label, function () {
+    if (armed) { S.confirm = null; run(); render(); return; }
+    S.confirm = key; render();
+    setTimeout(function () { if (S.confirm === key) { S.confirm = null; render(); } }, 5000);
+  }, { kind: armed ? 'danger' : (kind || 'ghost'), id: 'cf-' + key });
+}
+function plural(r, c) { return c + ' ' + ROLE_TXT[r].title + (c > 1 && r !== 'mafia' ? 's' : ''); }
+function rvLabel(rv) {
+  if (!rv) return 'Out';
+  if (rv === 'town') return 'Town';
+  return ROLE_TXT[rv] ? ROLE_TXT[rv].title : 'Out';
+}
+function nameIn(players, id) {
+  const p = players.find(function (x) { return x.id === id; });
+  return p ? p.name : 'Player';
+}
+function rolePreview(n, cfg) {
+  const nn = Math.min(Math.max(n, MINP), MAXP);
+  const b = E.buildRoles(nn, cfg);
+  const parts = ['mafia', 'doctor', 'police', 'prankster', 'civilian'].filter(function (r) { return b.counts[r]; })
+    .map(function (r) { return plural(r, b.counts[r]); });
+  return { text: 'With ' + nn + ' players: ' + parts.join(', ') + '.', notes: b.notes };
+}
+
+function seat(p, o) {
+  o = o || {};
+  const dead = p.alive === false;
+  const cls = 'seat' + (dead ? ' dead' : '') + (o.selected ? ' sel' : '') + (o.selectable ? ' pick' : '');
+  const sub = dead ? h('span', { class: 'sub', text: rvLabel(p.rv) })
+    : o.blocked ? h('span', { class: 'sub', text: o.blocked })
+    : o.pending ? h('span', { class: 'sub wait', text: 'deciding' }) : null;
+  const inner = [
+    h('span', { class: 'av', style: '--h:' + hue(p.id), text: (p.name || '?').charAt(0).toUpperCase() }),
+    h('span', { class: 'sn' },
+      h('span', { class: 'nm', text: p.name }),
+      o.you ? h('em', { class: 'tag', text: 'you' }) : null,
+      o.mate ? h('em', { class: 'tag ally', text: 'ally' }) : null),
+    sub
+  ];
+  if (o.selectable) {
+    return h('button', {
+      type: 'button', class: cls, 'data-id': p.id, 'aria-pressed': o.selected ? 'true' : 'false',
+      onclick: function () { o.onPick(p.id); }
+    }, inner);
+  }
+  return h('div', { class: cls, 'data-id': p.id }, inner);
+}
+
+/* ================= shared game panels ================= */
+function banner(pub) {
+  const night = pub.phase === 'night';
+  const over = pub.phase === 'over';
+  const title = over ? 'Game over'
+    : night ? 'Night ' + pub.round
+    : 'Day ' + pub.round + (pub.phase === 'discuss' ? ' · Discussion' : ' · Vote');
+  const sub = over ? ''
+    : night ? 'The town sleeps. Everyone acts in secret.'
+    : pub.phase === 'discuss' ? 'Talk it over. Move to the vote when everyone is ready.'
+    : 'Vote someone out, or skip.';
+  const pend = (pub.pending || []).map(function (id) { return nameOf(id); });
+  const waiting = pend.length ? 'Waiting for ' + (pend.length > 4 ? pend.slice(0, 4).join(', ') + ' +' + (pend.length - 4) : pend.join(', ')) : '';
+  return h('section', { class: 'banner ' + (night ? 'night' : over ? 'over' : 'day'), id: 'banner' },
+    h('div', { class: 'bl' },
+      icon(night ? 'moon' : 'sun', 26),
+      h('div', {},
+        h('h1', { class: 'bt', text: title }),
+        sub ? h('p', { class: 'bs', text: sub }) : null,
+        !over && waiting ? h('p', { class: 'bw', id: 'waiting', text: waiting }) : null)),
+    pub.dl ? h('div', { class: 'timer', id: 'timer', 'aria-label': 'Time left' }) : null);
+}
+
+function rolePanel(v, players, local) {
+  const r = v.me.role, t = ROLE_TXT[r];
+  const open = local ? true : S.roleOpen;
+  if (!open) {
+    return h('div', { class: 'rolebar' },
+      h('span', { class: 'dim', text: 'Your role is hidden' }),
+      btn('Show', function () { S.roleOpen = true; render(); }, { kind: 'ghost small', id: 'showRole' }));
+  }
+  const kids = [
+    h('div', { class: 'eyebrow', text: 'Your role' }),
+    h('h2', { class: 'rname', text: t.title }),
+    h('p', { class: 'rblurb', text: t.blurb })
+  ];
+  if (r === 'mafia' && v.mates.length) {
+    kids.push(h('p', { class: 'allies' }, 'Your ally' + (v.mates.length > 1 ? 's: ' : ': '),
+      v.mates.map(function (m, i) { return h('strong', { text: m.name + (m.alive ? '' : ' (out)') + (i < v.mates.length - 1 ? ', ' : '') }); })));
+  }
+  if (r === 'mafia' && !v.mates.length) kids.push(h('p', { class: 'allies', text: 'You are the only Mafia member.' }));
+  if (!local) kids.push(btn('Hide', function () { S.roleOpen = false; render(); }, { kind: 'ghost small', id: 'hideRole' }));
+  return h('section', { class: 'card role ' + r, id: 'roleCard' }, icon(r, 40), h('div', { class: 'rbody' }, kids));
+}
+
+function infoCard(v, players) {
+  const rows = [];
+  v.intel.forEach(function (i) {
+    rows.push(h('li', {}, 'Night ' + i.r + ': ', h('strong', { text: nameIn(players, i.to) }), i.res === 'mafia' ? ' is Mafia.' : ' is not Mafia.'));
+  });
+  v.notes.forEach(function (n) { rows.push(h('li', {}, 'Night ' + n.r + ': ' + n.x)); });
+  if (!rows.length) return null;
+  return card(h('h3', { text: 'Private notes' }), h('ul', { class: 'plain' }, rows));
+}
+
+function actionPanel(v, players, submitFn, local) {
+  const act = v.act;
+  if (!act) {
+    if (!v.me.alive) {
+      return card(h('h2', { text: 'You are out' }),
+        h('p', { class: 'dim', text: local ? 'Pass the device on.' : 'Keep what you know to yourself. You can still chat with the other ghosts below.' }));
+    }
+    return null;
+  }
+  const selKey = v.gameId + ':' + v.key + ':' + v.me.id;
+  const sent = S.sent && S.sent.k === selKey ? S.sent : null;
+  const mine = v.mine;
+  const locked = !!(sent || mine);
+  const lockedTo = sent ? sent.to : (mine ? mine.to : undefined);
+  const doSubmit = function (a) {
+    if (!local) { S.sent = { k: selKey, to: a.to }; }
+    SFX.click();
+    if (!local) render();
+    Promise.resolve(submitFn(a)).catch(function (e) { S.sent = null; setErr(e); });
+  };
+
+  if (act.kind === 'sleep' || act.kind === 'ready') {
+    const isSleep = act.kind === 'sleep';
+    const c = card(
+      h('h2', { text: isSleep ? 'Close your eyes' : 'Discussion' }),
+      h('p', { class: 'dim', text: isSleep
+        ? 'You have no night power. Tap below so nobody can tell who does.'
+        : 'Talk it over. Tap when you are ready to vote. The vote opens when everyone is ready.' }),
+      btn(locked ? (isSleep ? 'Sleeping…' : 'Ready. Waiting for the others…') : (isSleep ? 'Go to sleep' : 'I’m ready to vote'),
+        function () { doSubmit({ t: act.kind }); }, { kind: 'primary', disabled: locked, id: 'actBtn' }));
+    return c;
+  }
+
+  const txt = KIND_TXT[act.kind];
+  const chosen = S.sel && S.sel.k === selKey ? S.sel.to : lockedTo;
+  const mateSet = {};
+  v.mates.forEach(function (m) { mateSet[m.id] = true; });
+  const pick = function (id) { S.sel = { k: selKey, to: id }; SFX.click(); render(); };
+  const grid = h('div', { class: 'seats' },
+    players.filter(function (p) { return p.alive; }).map(function (p) {
+      return seat(p, {
+        selectable: act.targets.indexOf(p.id) !== -1, selected: chosen === p.id,
+        blocked: act.blocked[p.id], you: p.id === v.me.id, mate: !!mateSet[p.id] && v.me.role === 'mafia', onPick: pick
+      });
+    }));
+  const c = card(h('h2', { text: txt.title }), h('p', { class: 'dim', text: txt.prompt }), grid);
+  if (act.skip) {
+    c.appendChild(h('button', {
+      type: 'button', class: 'seat skip' + (chosen === 'skip' ? ' sel' : ''), 'data-id': 'skip',
+      'aria-pressed': chosen === 'skip' ? 'true' : 'false', onclick: function () { pick('skip'); }
+    }, h('span', { class: 'sn' }, h('span', { class: 'nm', text: 'Skip. Nobody goes out.' }))));
+  }
+  const same = locked && chosen === lockedTo;
+  const label = !chosen ? 'Pick an option' : same ? 'Locked in' : locked ? 'Change choice' : txt.btn;
+  c.appendChild(btn(label, function () { doSubmit({ t: act.kind, to: chosen }); }, { kind: 'primary', disabled: !chosen || same, id: 'actBtn' }));
+  if (locked && !local) c.appendChild(h('p', { class: 'hint', text: 'Locked in. You can change it until everyone has chosen.' }));
+  if (v.me.role === 'mafia' && act.kind === 'kill') {
+    const mv = Object.keys(v.mateVotes);
+    if (mv.length) {
+      c.appendChild(h('ul', { class: 'plain mates' }, mv.map(function (id) {
+        const m = v.mates.find(function (x) { return x.id === id; });
+        return h('li', {}, (m ? m.name : 'Ally') + ' picked ', h('strong', { text: nameIn(players, v.mateVotes[id]) }), '.');
+      })));
+    }
+    if (!local) c.appendChild(mafiaChat(v));
+  }
+  return c;
+}
+
+function mafiaChat(v) {
+  const who = {};
+  who[v.me.id] = v.me.name;
+  v.mates.forEach(function (m) { who[m.id] = m.name; });
+  const log = h('div', { class: 'chatlog small', id: 'mchatLog' },
+    v.mchat.length ? v.mchat.map(function (m) { return h('div', { class: 'msg' + (m.f === v.me.id ? ' mine' : '') }, h('b', { text: who[m.f] || 'Ally' }), ' ', h('span', { text: m.x })); })
+      : h('p', { class: 'hint', text: 'Only Mafia can read this. Plan tonight’s target.' }));
+  const input = h('input', { id: 'mchatIn', type: 'text', maxlength: '300', autocomplete: 'off', placeholder: 'Whisper to your team…', 'aria-label': 'Mafia message' });
+  const form = h('form', { class: 'chatform', onsubmit: function (e) { e.preventDefault(); const t = input.value; input.value = ''; sendMafiaChat(t); } },
+    input, h('button', { class: 'btn', type: 'submit', id: 'mchatSend', text: 'Send' }));
+  return h('div', { class: 'mchat' }, h('h3', { text: 'Mafia whisper' }), log, form);
+}
+
+function newsCard(pub) {
+  const log = pub.log || [];
+  const latest = log.slice(-4);
+  const kids = [h('h3', { text: 'Latest news' })];
+  if (!latest.length) kids.push(h('p', { class: 'dim', text: 'The first night begins. Nobody has been hurt yet.' }));
+  else kids.push(h('ul', { class: 'plain news' }, latest.map(function (e) { return h('li', { class: 'lg ' + e.ph, text: e.x }); })));
+  const b = pub.ballot;
+  if (b && ((pub.phase === 'night' && b.r === pub.round - 1) || pub.phase === 'over')) {
+    kids.push(h('details', { class: 'ballot', id: 'ballotD' },
+      h('summary', { text: 'How everyone voted' }),
+      h('ul', { class: 'plain' }, b.rows.map(function (w) {
+        return h('li', {}, h('strong', { text: nameOf(w.from) }), ' → ', w.to === 'skip' ? 'skip' : w.to === null ? 'no vote' : nameOf(w.to));
+      }))));
+  }
+  if (log.length > 4) {
+    kids.push(h('details', { class: 'history', id: 'histD' }, h('summary', { text: 'Full history' }),
+      h('ul', { class: 'plain news' }, log.map(function (e) { return h('li', { class: 'lg ' + e.ph, text: e.x }); }))));
+  }
+  return card(kids);
+}
+
+function seatsCard(pub, v) {
+  const mates = {};
+  if (v && v.me && v.me.role === 'mafia') v.mates.forEach(function (m) { mates[m.id] = true; });
+  const pend = {};
+  (pub.pending || []).forEach(function (id) { pend[id] = true; });
+  return card(h('h3', { text: 'The table' }),
+    h('div', { class: 'seats' }, pub.players.map(function (p) {
+      return seat(p, { you: p.id === S.me, mate: !!mates[p.id], pending: !!pend[p.id] && p.alive });
+    })));
+}
+
+/* ================= config panel ================= */
+const NIGHT_OPTS = [[0, 'No limit'], [60, '1 min'], [90, '1.5 min'], [120, '2 min']];
+const DISC_OPTS = [[0, 'No limit'], [120, '2 min'], [180, '3 min'], [300, '5 min']];
+const VOTE_OPTS = [[0, 'No limit'], [45, '45 sec'], [60, '1 min'], [90, '1.5 min']];
+
+function seg(label, id, options, value, onPick) {
+  return h('div', { class: 'field', id: id },
+    h('span', { class: 'lbl', text: label }),
+    h('div', { class: 'seg', role: 'group', 'aria-label': label }, options.map(function (o) {
+      const on = String(o[0]) === String(value);
+      return h('button', { type: 'button', class: 'segb' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false', 'data-v': String(o[0]), onclick: function () { onPick(o[0]); } }, o[1]);
+    })));
+}
+function toggle(id, label, desc, on, onPick) {
+  return h('button', { type: 'button', id: id, class: 'toggle' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false', onclick: function () { onPick(!on); } },
+    h('span', { class: 'tk' }), h('span', { class: 'tl' }, label, h('small', { text: desc })));
+}
+function timeSel(id, label, val, opts, onPick) {
+  return h('label', { class: 'field', for: id }, h('span', { class: 'lbl', text: label }),
+    h('select', { id: id, onchange: function (e) { onPick(Number(e.target.value)); } },
+      opts.map(function (o) { return h('option', { value: String(o[0]), selected: o[0] === val }, o[1]); })));
+}
+function configPanel(cfg, n, change, o) {
+  const pv = rolePreview(n, cfg);
+  return card(
+    h('h3', { text: 'Table rules' }),
+    seg('Mafia members', 'cfgMafia', [['auto', 'Auto'], [1, '1'], [2, '2']], cfg.mafia, function (v) { change({ mafia: v }); }),
+    h('div', { class: 'toggles' },
+      toggle('cfgDoctor', 'Doctor', 'Protects one player each night', cfg.doctor, function (v) { change({ doctor: v }); }),
+      toggle('cfgPolice', 'Police', 'Investigates one player each night', cfg.police, function (v) { change({ police: v }); }),
+      toggle('cfgPrank', 'Prankster', 'Blocks one player’s night action', cfg.prankster, function (v) { change({ prankster: v }); })),
+    seg('When someone is out, reveal', 'cfgReveal', [['role', 'Their role'], ['team', 'Their team'], ['none', 'Nothing']], cfg.reveal, function (v) { change({ reveal: v }); }),
+    o.timers ? h('div', { class: 'timesel' },
+      timeSel('cfgNight', 'Night limit', cfg.nightSecs, NIGHT_OPTS, function (v) { change({ nightSecs: v }); }),
+      timeSel('cfgDisc', 'Discussion limit', cfg.discussSecs, DISC_OPTS, function (v) { change({ discussSecs: v }); }),
+      timeSel('cfgVote', 'Voting limit', cfg.voteSecs, VOTE_OPTS, function (v) { change({ voteSecs: v }); })) : null,
+    h('p', { class: 'preview', id: 'rolePreview', text: pv.text }),
+    pv.notes.map(function (t) { return h('p', { class: 'hint', text: t }); }));
+}
+function configSummary(cfg, n) {
+  const pv = rolePreview(n, cfg);
+  const lim = [];
+  if (cfg.nightSecs) lim.push('night ' + mmss(cfg.nightSecs * 1000));
+  if (cfg.discussSecs) lim.push('discussion ' + mmss(cfg.discussSecs * 1000));
+  if (cfg.voteSecs) lim.push('vote ' + mmss(cfg.voteSecs * 1000));
+  return card(h('h3', { text: 'Table rules' }),
+    h('p', { id: 'rolePreview', text: pv.text }),
+    h('p', { class: 'dim', text: 'When someone is out, everyone learns ' + (cfg.reveal === 'role' ? 'their role' : cfg.reveal === 'team' ? 'their team' : 'nothing about them') + '.' }),
+    lim.length ? h('p', { class: 'dim', text: 'Time limits: ' + lim.join(', ') + '.' }) : null);
+}
+
+/* ================= screens: home / lobby / game / over ================= */
+function hero(small) {
+  return h('header', { class: 'hero' + (small ? ' small' : '') },
+    h('h1', { class: 'brand-big', text: 'Mafia' }),
+    h('p', { class: 'tagline', text: 'Hidden roles. One table. Four to eight players.' }));
+}
+function howCard() {
+  return h('details', { class: 'card how', id: 'howD' },
+    h('summary', { text: 'How to play' }),
+    HOW.map(function (r) { return h('div', { class: 'howrow' }, h('h4', { text: r[0] }), h('p', { text: r[1] })); }));
+}
+function localEntryCard() {
+  const saved = store('local');
+  let resumable = false;
+  try { const d = saved ? JSON.parse(saved) : null; resumable = !!(d && d.st && d.stage !== 'over' && d.stage !== 'setup'); } catch (e) { resumable = false; }
+  return card(h('h3', { text: 'One device' }),
+    h('p', { class: 'dim', text: 'Pass a single phone or laptop around the table. Everyone takes a turn in private.' }),
+    h('div', { class: 'row' },
+      btn('Play on one device', function () { enterLocal(false); }, { kind: S.online && S.pub ? 'ghost' : 'primary', id: 'localBtn' }),
+      resumable ? btn('Resume saved game', function () { enterLocal(true); }, { kind: 'ghost', id: 'resumeBtn' }) : null));
+}
+function homeScreen() {
+  const nodes = [hero(false)];
+  if (!S.online) {
+    nodes.push(card(h('h2', { text: 'Online tables need claude.ai' }),
+      h('p', { class: 'dim', text: 'Open this page in claude.ai while signed in to host or join a live table. You can still play on one device.' })));
+  } else if (!S.pubLoaded) {
+    nodes.push(card(h('p', { class: 'dim', text: 'Looking for a table…' })));
+  } else if (!S.pub) {
+    nodes.push(card(h('h2', { text: 'No table is open' }),
+      S.canEdit
+        ? [h('p', { class: 'dim', text: 'Open a table, then share this page’s link with your players. Give them contributor access so they can sit down.' }),
+           btn('Open a table', function () { hostOpenLobby(false); }, { kind: 'primary', id: 'openTable' })]
+        : h('p', { class: 'dim', text: 'The host has not opened a table yet. This page updates on its own when they do.' })));
+  }
+  nodes.push(localEntryCard());
+  nodes.push(howCard());
+  return nodes;
+}
+
+function lobbyScreen() {
+  const pub = S.pub, roster = S.roster, host = isHost();
+  const n = roster.length;
+  const inRoster = roster.some(function (r) { return r.id === S.me; });
+  const nodes = [h('header', { class: 'hero small' },
+    h('h1', { class: 'brand-big', text: 'Mafia' }),
+    h('p', { class: 'tagline', text: host ? 'You are hosting this table.' : (pub.hostName ? 'Hosted by ' + pub.hostName + '.' : 'Waiting for the host to deal the roles.') }))];
+
+  const seats = [];
+  roster.forEach(function (r) {
+    seats.push(h('div', { class: 'seatwrap' },
+      seat({ id: r.id, name: r.name, alive: true }, { you: r.id === S.me }),
+      host && r.id !== S.me ? h('button', { type: 'button', class: 'xbtn', 'aria-label': 'Remove ' + r.name, 'data-remove': r.id, onclick: function () { hostRemove(r.id); } }, icon('x', 14)) : null));
+  });
+  for (let i = n; i < MAXP; i++) seats.push(h('div', { class: 'seat empty' }, h('span', { class: 'nm', text: 'Open seat' })));
+  const countText = n + ' of ' + MAXP + ' seated' + (n < MINP ? ' · need ' + (MINP - n) + ' more' : n > MAXP ? ' · too many' : '');
+  const seatCard = card(h('h2', { text: 'Seats' }), h('p', { class: 'dim', id: 'seatCount', text: countText }), h('div', { class: 'seats' }, seats));
+  if (!inRoster) {
+    seatCard.appendChild(h('form', { class: 'joinrow', onsubmit: function (e) { e.preventDefault(); joinTable(S.nameDraft); } },
+      h('input', { id: 'nameIn', type: 'text', maxlength: '16', autocomplete: 'off', placeholder: 'Your name', 'aria-label': 'Your name', value: S.nameDraft, oninput: function (e) { S.nameDraft = e.target.value; } }),
+      h('button', { class: 'btn primary', type: 'submit', id: 'joinBtn', disabled: n >= MAXP }, 'Take a seat')));
+    if (n >= MAXP) seatCard.appendChild(h('p', { class: 'hint', text: 'The table is full.' }));
+  } else {
+    seatCard.appendChild(btn('Leave table', leaveTable, { kind: 'ghost', id: 'leaveBtn' }));
+  }
+  nodes.push(seatCard);
+
+  if (host) {
+    nodes.push(configPanel(pub.cfg, n, hostSetCfg, { timers: true }));
+    const ok = n >= MINP && n <= MAXP;
+    nodes.push(card(
+      btn(n < MINP ? 'Need ' + (MINP - n) + ' more player' + (MINP - n > 1 ? 's' : '') : n > MAXP ? 'Remove ' + (n - MAXP) + ' player' + (n - MAXP > 1 ? 's' : '') : 'Deal the roles', hostStart, { kind: 'primary', disabled: !ok, id: 'startBtn' }),
+      h('p', { class: 'hint', text: 'Share this page’s link. Players need contributor access to sit down. This tab runs the game, so keep it open.' })));
+  } else {
+    nodes.push(configSummary(pub.cfg, n));
+    nodes.push(card(h('p', { class: 'dim', id: 'waitHost', text: inRoster ? 'You are seated. The host will deal the roles when everyone is here.' : 'Take a seat to join this game.' })));
+    if (S.canEdit) nodes.push(card(confirmBtn('takeover', 'Host this table instead', 'Confirm: take over hosting', function () { hostOpenLobby(false); }, 'ghost')));
+  }
+  nodes.push(localEntryCard());
+  nodes.push(howCard());
+  return nodes;
+}
+
+function hostPanel() {
+  const pub = S.pub, st = H.state;
+  const c = card(h('h3', { text: 'Host controls' }),
+    h('p', { class: 'hint', text: 'This browser tab runs the game for everyone. Keep it open.' }));
+  const active = pub.phase === 'night' || pub.phase === 'discuss' || pub.phase === 'vote';
+  if (S.hostLost && pub.phase !== 'over') {
+    c.appendChild(h('p', { class: 'warn', text: 'The saved game data could not be found, so this game cannot continue.' }));
+  } else if (active) {
+    const pend = (pub.pending || []).map(nameOf);
+    c.appendChild(h('p', { class: 'small', id: 'hostPending', text: pend.length ? 'Waiting for: ' + pend.join(', ') : 'Everyone has acted.' }));
+    c.appendChild(confirmBtn('skip', 'Skip waiting', 'Confirm: continue now', hostForce, 'ghost'));
+    const alive = (pub.players || []).filter(function (p) { return p.alive; });
+    c.appendChild(h('div', { class: 'row' },
+      h('select', { id: 'rmSel', 'aria-label': 'Remove a player', onchange: function (e) { S.rmSel = e.target.value; render(); } },
+        h('option', { value: '' }, 'Remove a player…'),
+        alive.map(function (p) { return h('option', { value: p.id, selected: S.rmSel === p.id }, p.name); })),
+      S.rmSel ? confirmBtn('rm', 'Remove', 'Confirm: remove', function () { const id = S.rmSel; S.rmSel = ''; hostRemove(id); }, 'ghost') : null));
+  }
+  c.appendChild(confirmBtn('end', pub.phase === 'over' ? 'New game with the same players' : 'End game and return to the lobby', 'Confirm', function () { hostOpenLobby(true); }, pub.phase === 'over' ? 'primary' : 'ghost'));
+  if (st && !st.players.some(function (p) { return p.id === S.me; })) {
+    c.appendChild(h('details', { class: 'narrator', id: 'narrD' }, h('summary', { text: 'Narrator view (shows every role)' }),
+      h('ul', { class: 'plain' }, st.players.map(function (p) {
+        return h('li', {}, h('strong', { text: p.name }), ' – ' + ROLE_TXT[p.role].title + (p.alive ? '' : ' (out)'));
+      }))));
+  }
+  return c;
+}
+
+function onlineGameScreen() {
+  const pub = S.pub, v = S.view;
+  const meIn = inGame();
+  const nodes = [banner(pub)];
+  if (meIn) {
+    if (S.roleSeenFor !== pub.gameId) { S.roleSeenFor = pub.gameId; S.roleOpen = true; }
+    const synced = v && v.gameId === pub.gameId && v.key === pub.key;
+    if (!synced) nodes.push(card(h('p', { class: 'dim', id: 'syncing', text: 'Syncing with the host…' })));
+    else {
+      nodes.push(rolePanel(v, pub.players, false));
+      nodes.push(actionPanel(v, pub.players, function (a) { return sendAction(v, a); }, false));
+      nodes.push(infoCard(v, pub.players));
+    }
+  } else {
+    nodes.push(card(h('p', { class: 'dim', id: 'watching', text: 'This game is already under way. You are watching.' })));
+  }
+  nodes.push(newsCard(pub));
+  nodes.push(seatsCard(pub, v));
+  if (isHost()) nodes.push(hostPanel());
+  return nodes;
+}
+
+function resultCard(pub, myRole) {
+  const win = pub.winner;
+  let line = win === 'town' ? 'Town wins' : 'Mafia wins';
+  let sub = win === 'town' ? 'Every Mafia member is out.' : 'The Mafia now matches the town.';
+  if (myRole) {
+    const mine = (myRole === 'mafia') === (win === 'mafia');
+    sub += mine ? ' You won.' : ' You lost.';
+  }
+  return h('section', { class: 'banner over ' + win, id: 'banner' },
+    h('div', { class: 'bl' }, icon(win === 'town' ? 'police' : 'mafia', 30),
+      h('div', {}, h('h1', { class: 'bt', id: 'winner', text: line }), h('p', { class: 'bs', text: sub }))));
+}
+function rolesReveal(pub) {
+  return card(h('h3', { text: 'Who was who' }),
+    h('div', { class: 'seats' }, pub.players.map(function (p) {
+      return h('div', { class: 'seat reveal ' + p.rv + (p.alive ? '' : ' dead'), 'data-id': p.id },
+        h('span', { class: 'av', style: '--h:' + hue(p.id), text: p.name.charAt(0).toUpperCase() }),
+        h('span', { class: 'sn' }, h('span', { class: 'nm', text: p.name }), p.id === S.me ? h('em', { class: 'tag', text: 'you' }) : null),
+        h('span', { class: 'sub', text: ROLE_TXT[p.rv].title + (p.alive ? '' : ' · out') }));
+    })));
+}
+function recapCard(pub) {
+  if (!pub.recap || !pub.recap.length) return null;
+  return h('details', { class: 'card how', id: 'recapD', open: true },
+    h('summary', { text: 'What really happened' }),
+    h('ul', { class: 'plain news' }, pub.recap.map(function (t) { return h('li', { text: t }); })));
+}
+function onlineOverScreen() {
+  const pub = S.pub, v = S.view;
+  const myRole = inGame() && v && v.gameId === pub.gameId && v.me ? v.me.role : null;
+  const nodes = [resultCard(pub, myRole), rolesReveal(pub), recapCard(pub), newsCard(pub)];
+  if (isHost()) nodes.push(hostPanel());
+  else nodes.push(card(h('p', { class: 'dim', id: 'waitNew', text: 'Waiting for the host to start another game.' })));
+  return nodes;
+}
+
+function onlineScreen() {
+  const pub = S.pub;
+  if (pub.phase === 'lobby') return lobbyScreen();
+  if (pub.phase === 'over') return onlineOverScreen();
+  return onlineGameScreen();
+}
+
+/* ================= local pass-and-play ================= */
+function defaultLocal() {
+  return { stage: 'setup', names: ['', '', '', ''], cfg: E.defaultConfig(), st: null, kind: '', queue: [], i: 0, peek: '' };
+}
+function persistLocal() {
+  const d = L.data;
+  if (!d || d.stage === 'setup') return;
+  store('local', d.stage === 'over' ? null : JSON.stringify(d));
+}
+function enterLocal(resume) {
+  S.mode = 'local';
+  L.data = null;
+  if (resume) {
+    try { L.data = JSON.parse(store('local')); } catch (e) { L.data = null; }
+  }
+  if (!L.data || !L.data.st) L.data = defaultLocal();
+  render();
+}
+function exitLocal() { S.mode = 'auto'; render(); }
+function localLiving() { return L.data.st.players.filter(function (p) { return p.alive; }).map(function (p) { return p.id; }); }
+function localBegin(kind) {
+  const d = L.data;
+  d.kind = kind; d.queue = localLiving(); d.i = 0; d.stage = 'handoff';
+  persistLocal(); render();
+}
+function localNext() {
+  const d = L.data;
+  d.i++;
+  if (d.i < d.queue.length) { d.stage = 'handoff'; persistLocal(); render(); return; }
+  const st = d.st;
+  if (d.kind === 'roles') { localBegin('night'); return; }
+  E.advance(st, secureRng, 0);
+  if (st.phase === 'over') d.stage = 'over';
+  else d.stage = d.kind === 'night' ? 'day' : 'result';
+  persistLocal(); render();
+}
+function localStart() {
+  const d = L.data;
+  const players = d.names.map(function (nm, i) { return { id: 'L' + i, name: cleanName(nm) || 'Player ' + (i + 1) }; });
+  if (players.length < MINP || players.length > MAXP) { setErr('Mafia needs ' + MINP + ' to ' + MAXP + ' players.'); return; }
+  d.st = E.newGame({ gameId: 'local' + newId(), players: players, cfg: d.cfg, rng: secureRng, now: 0 });
+  d.kind = 'roles'; d.queue = players.map(function (p) { return p.id; }); d.i = 0; d.stage = 'handoff';
+  persistLocal(); render();
+}
+function localPlayers() {
+  const pv = E.publicView(L.data.st);
+  return pv.players;
+}
+function localBanner() {
+  return banner(E.publicView(L.data.st));
+}
+
+function localSetup() {
+  const d = L.data;
+  const n = d.names.length;
+  const inputs = h('div', { class: 'namelist' }, d.names.map(function (nm, i) {
+    return h('input', { id: 'ln' + i, type: 'text', maxlength: '16', autocomplete: 'off', placeholder: 'Player ' + (i + 1), 'aria-label': 'Player ' + (i + 1) + ' name', value: nm,
+      oninput: function (e) { d.names[i] = e.target.value; } });
+  }));
+  return [
+    hero(true),
+    card(h('h2', { text: 'Who is playing?' }), h('p', { class: 'dim', text: 'Enter 4 to 8 names. The device will be passed around.' }), inputs,
+      h('div', { class: 'row' },
+        btn('Add player', function () { if (d.names.length < MAXP) { d.names.push(''); render(); } }, { kind: 'ghost', id: 'addP', disabled: n >= MAXP }),
+        btn('Remove last', function () { if (d.names.length > MINP) { d.names.pop(); render(); } }, { kind: 'ghost', id: 'delP', disabled: n <= MINP }))),
+    configPanel(d.cfg, n, function (p) { d.cfg = E.normalizeConfig(Object.assign({}, d.cfg, p)); render(); }, { timers: false }),
+    card(btn('Deal the roles', localStart, { kind: 'primary', id: 'localStart' }), btn('Back', exitLocal, { kind: 'ghost', id: 'localBack' })),
+    howCard()
+  ];
+}
+function localHandoff() {
+  const d = L.data, who = E.P(d.st, d.queue[d.i]);
+  const forRole = d.kind === 'roles';
+  return [
+    localBanner(),
+    card(h('p', { class: 'eyebrow', text: forRole ? 'Role reveal' : d.kind === 'night' ? 'Night action' : 'Vote' }),
+      h('h2', { class: 'pass', text: 'Pass the device to' }),
+      h('p', { class: 'passname', id: 'passName', text: who.name }),
+      h('p', { class: 'hint', text: 'Make sure nobody else can see the screen.' }),
+      btn('I am ' + who.name, function () { d.stage = forRole ? 'role' : 'act'; persistLocal(); render(); }, { kind: 'primary', id: 'iAm' }))
+  ];
+}
+function localRole() {
+  const d = L.data, id = d.queue[d.i];
+  const v = E.playerView(d.st, id);
+  return [rolePanel(v, localPlayers(), true), card(btn('Hide and pass on', localNext, { kind: 'primary', id: 'hideNext' }))];
+}
+function localAct() {
+  const d = L.data, id = d.queue[d.i];
+  const v = E.playerView(d.st, id);
+  const players = localPlayers();
+  const submit = function (a) {
+    const r = E.submit(d.st, id, a);
+    if (!r.ok) { setErr('That choice is not allowed. Try again.'); return; }
+    localNext();
+  };
+  return [
+    localBanner(),
+    h('div', { class: 'rolebar mini' }, icon(v.me.role, 18), h('span', { text: v.me.name + ' · ' + ROLE_TXT[v.me.role].title })),
+    infoCard(v, players),
+    actionPanel(v, players, submit, true)
+  ];
+}
+function localDay() {
+  const d = L.data, st = d.st;
+  const pub = E.publicView(st);
+  return [
+    banner(pub),
+    newsCard(pub),
+    seatsCard(pub, null),
+    card(h('h3', { text: 'Discussion' }), h('p', { class: 'dim', text: 'Talk it over out loud. Anyone with private news can peek in secret.' }),
+      h('div', { class: 'row' },
+        btn('Peek at my private notes', function () { d.stage = 'peekpick'; render(); }, { kind: 'ghost', id: 'peekBtn' }),
+        btn('Start the vote', function () {
+          E.advance(st, secureRng, 0);
+          localBegin('vote');
+        }, { kind: 'primary', id: 'voteBtn' })))
+  ];
+}
+function localPeekPick() {
+  const d = L.data;
+  return [h('section', { class: 'card' }, h('h2', { text: 'Who is peeking?' }),
+    h('p', { class: 'dim', text: 'Pick your name, then make sure nobody else is looking.' }),
+    h('div', { class: 'seats' }, d.st.players.filter(function (p) { return p.alive; }).map(function (p) {
+      return seat({ id: p.id, name: p.name, alive: true }, { selectable: true, onPick: function (id) { d.peek = id; d.stage = 'peek'; render(); } });
+    })),
+    btn('Back', function () { d.stage = 'day'; render(); }, { kind: 'ghost', id: 'peekBack' }))];
+}
+function localPeek() {
+  const d = L.data;
+  const v = E.playerView(d.st, d.peek);
+  const info = infoCard(v, localPlayers());
+  return [
+    h('div', { class: 'rolebar mini' }, icon(v.me.role, 18), h('span', { text: v.me.name + ' · ' + ROLE_TXT[v.me.role].title })),
+    info || card(h('p', { class: 'dim', text: 'No private notes right now.' })),
+    card(btn('Hide', function () { d.peek = ''; d.stage = 'day'; render(); }, { kind: 'primary', id: 'peekDone' }))
+  ];
+}
+function localResult() {
+  const d = L.data;
+  const pub = E.publicView(d.st);
+  return [
+    h('section', { class: 'banner day' }, h('div', { class: 'bl' }, icon('sun', 26), h('div', {}, h('h1', { class: 'bt', text: 'The votes are in' })))),
+    newsCard(pub),
+    seatsCard(pub, null),
+    card(btn('Begin night ' + d.st.round, function () { localBegin('night'); }, { kind: 'primary', id: 'beginNight' }))
+  ];
+}
+function localOver() {
+  const d = L.data;
+  const pub = E.publicView(d.st);
+  return [
+    resultCard(pub, null), rolesReveal(pub), recapCard(pub), newsCard(pub),
+    card(h('div', { class: 'row' },
+      btn('Play again', function () { const names = d.st.players.map(function (p) { return p.name; }); const cfg = d.cfg; L.data = defaultLocal(); L.data.names = names; L.data.cfg = cfg; store('local', null); render(); }, { kind: 'primary', id: 'again' }),
+      btn('Exit', function () { store('local', null); exitLocal(); }, { kind: 'ghost', id: 'exitLocal' })))
+  ];
+}
+function localScreen() {
+  const d = L.data;
+  if (!d) { L.data = defaultLocal(); return localSetup(); }
+  const map = { setup: localSetup, handoff: localHandoff, role: localRole, act: localAct, day: localDay, peekpick: localPeekPick, peek: localPeek, result: localResult, over: localOver };
+  return (map[d.stage] || localSetup)();
+}
+
+/* ================= chat dock ================= */
+function canChat() {
+  if (!S.online || !S.pub || S.mode === 'local') return { show: false };
+  const pub = S.pub, me = pubPlayer(S.me);
+  if (pub.phase === 'lobby') {
+    const seated = S.roster.some(function (r) { return r.id === S.me; });
+    return seated ? { show: true, ok: true } : { show: true, ok: false, why: 'Take a seat to chat.' };
+  }
+  if (!me) return { show: true, ok: false, why: 'Spectators cannot chat.' };
+  if (pub.phase === 'over') return { show: true, ok: true };
+  if (!me.alive) return { show: true, ok: true, ghost: true };
+  if (pub.phase === 'night') return { show: true, ok: false, why: 'The table is silent at night.' };
+  return { show: true, ok: true };
+}
+renderDock = function () {
+  const c = canChat();
+  dockEl.hidden = !c.show;
+  if (!c.show) return;
+  const pub = S.pub, me = pubPlayer(S.me);
+  const iAmDead = !!(me && !me.alive);
+  const seeAll = iAmDead || pub.phase === 'over';
+  const all = [];
+  Object.keys(S.chats).forEach(function (id) {
+    const d = S.chats[id] || {};
+    (Array.isArray(d.msgs) ? d.msgs : []).forEach(function (m) {
+      if (!m || typeof m.x !== 'string') return;
+      all.push({ id: id, name: d.name || 'Player', t: m.t || 0, x: m.x, g: !!m.g });
+    });
+  });
+  all.sort(function (a, b) { return a.t - b.t; });
+  const shown = all.filter(function (m) { return !m.g || seeAll; }).slice(-80);
+  const near = chatLogEl.scrollHeight - chatLogEl.scrollTop - chatLogEl.clientHeight < 60;
+  clear(chatLogEl);
+  if (!shown.length) chatLogEl.appendChild(h('p', { class: 'hint', text: 'No messages yet.' }));
+  shown.forEach(function (m) {
+    const nm = pubPlayer(m.id) ? pubPlayer(m.id).name : (S.roster.find(function (r) { return r.id === m.id; }) || { name: m.name }).name;
+    chatLogEl.appendChild(h('div', { class: 'msg' + (m.id === S.me ? ' mine' : '') + (m.g ? ' ghost' : '') }, h('b', { text: nm }), ' ', h('span', { text: m.x })));
+  });
+  if (near) chatLogEl.scrollTop = chatLogEl.scrollHeight;
+  dockTitle.textContent = c.ghost ? 'Ghost chat' : 'Table talk';
+  chatIn.disabled = !c.ok;
+  chatIn.placeholder = c.ok ? (c.ghost ? 'Only ghosts can read this…' : 'Say something…') : 'Chat is closed';
+  document.getElementById('chatSend').disabled = !c.ok;
+  chatHint.textContent = c.ok ? (c.ghost ? 'Living players cannot see ghost messages.' : '') : (c.why || '');
+};
+function buildDock() {
+  dockTitle = h('h2', { id: 'dockTitle', text: 'Table talk' });
+  chatLogEl = h('div', { class: 'chatlog', id: 'chatLog', 'aria-live': 'polite' });
+  chatIn = h('input', { id: 'chatIn', type: 'text', maxlength: '300', autocomplete: 'off', placeholder: 'Say something…', 'aria-label': 'Message' });
+  chatForm = h('form', { class: 'chatform', id: 'chatForm' }, chatIn, h('button', { class: 'btn primary', type: 'submit', id: 'chatSend' }, 'Send'));
+  chatHint = h('p', { class: 'hint', id: 'chatHint' });
+  chatForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    const c = canChat();
+    if (!c.show || !c.ok) return;
+    const t = chatIn.value;
+    chatIn.value = '';
+    sendChat(t);
+  });
+  dockEl = h('aside', { class: 'card dock', id: 'dock', hidden: true }, dockTitle, chatLogEl, chatForm, chatHint);
+}
+
+/* ================= shell ================= */
+function setTheme(t) {
+  if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  else document.documentElement.removeAttribute('data-theme');
+}
+function cycleTheme() {
+  const cur = store('theme') || '';
+  const next = cur === '' ? 'dark' : cur === 'dark' ? 'light' : '';
+  store('theme', next || null);
+  setTheme(next);
+  render();
+}
+function renderHeader() {
+  clear(hdrEl);
+  const theme = store('theme') || '';
+  let chip = '';
+  if (S.mode === 'local') chip = 'One device';
+  else if (S.online && S.pub) chip = S.pub.phase === 'lobby' ? 'Lobby' : S.pub.phase === 'over' ? 'Game over' : (S.pub.phase === 'night' ? 'Night ' : 'Day ') + S.pub.round;
+  add(hdrEl,
+    h('div', { class: 'hbrand' }, icon('mafia', 22), h('span', { class: 'logo', text: 'Mafia' }), chip ? h('span', { class: 'chip', id: 'chip', text: chip }) : null),
+    h('div', { class: 'htools' },
+      S.mode === 'local' ? btn('Leave', exitLocal, { kind: 'ghost small', id: 'leaveLocal' }) : null,
+      h('button', { type: 'button', class: 'iconbtn', id: 'soundBtn', 'aria-label': S.sound ? 'Mute sound' : 'Turn sound on', 'aria-pressed': S.sound ? 'true' : 'false',
+        onclick: function () { S.sound = !S.sound; store('sound', S.sound ? '1' : '0'); if (S.sound) SFX.click(); render(); } }, icon(S.sound ? 'vol' : 'mute')),
+      h('button', { type: 'button', class: 'iconbtn', id: 'themeBtn', 'aria-label': 'Theme: ' + (theme || 'system'), title: 'Theme: ' + (theme || 'system'), onclick: cycleTheme }, icon('theme'))));
+}
+function errBar() {
+  return h('div', { class: 'err', role: 'alert', id: 'errBar' }, h('span', { text: S.err }),
+    h('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Dismiss', onclick: function () { S.err = ''; render(); } }, icon('x', 16)));
+}
+function loadingCard(t) { return card(h('p', { class: 'dim', id: 'loading', text: t })); }
+
+function screen() {
+  if (S.boot) return [hero(false), loadingCard('Setting up the table…')];
+  if (S.mode === 'local') return localScreen();
+  if (S.online && S.pub) return onlineScreen();
+  return homeScreen();
+}
+
+function captureFocus() {
+  const a = document.activeElement;
+  if (!a || !a.id || !(a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')) return null;
+  if (a === chatIn) return null;
+  return { id: a.id, v: a.value, s: a.selectionStart, e: a.selectionEnd };
+}
+function restoreFocus(k) {
+  if (!k) return;
+  const el = document.getElementById(k.id);
+  if (!el) return;
+  if (el.tagName !== 'SELECT' && el.value !== k.v) el.value = k.v;
+  try { el.focus(); if (k.s !== null && k.s !== undefined && el.setSelectionRange) el.setSelectionRange(k.s, k.e); } catch (e) { /* not selectable */ }
+}
+
+function cue() {
+  const pub = S.online && S.mode !== 'local' ? S.pub : null;
+  const key = pub ? pub.gameId + ':' + pub.key : '';
+  if (key === S.lastKey) return;
+  const had = S.lastKey;
+  S.lastKey = key;
+  if (!had || !pub) return;
+  if (pub.phase === 'night') SFX.night();
+  else if (pub.phase === 'discuss') {
+    const last = (pub.log || [])[(pub.log || []).length - 1];
+    if (last && last.ph === 'N' && /killed/.test(last.x)) SFX.kill(); else SFX.day();
+  } else if (pub.phase === 'vote') SFX.vote();
+  else if (pub.phase === 'over') {
+    const me = inGame() && S.view && S.view.me ? S.view.me.role : null;
+    if (me && (me === 'mafia') !== (pub.winner === 'mafia')) SFX.lose(); else SFX.win();
+  }
+}
+
+function tickTimer() {
+  const el = document.getElementById('timer');
+  if (!el) return;
+  if (!S.pub || !S.pub.dl) { el.textContent = ''; return; }
+  const rem = (S.pub.dl - S.pub.at) - (Date.now() - S.pubAt);
+  el.textContent = rem > 0 ? mmss(rem) : '0:00';
+  el.classList.toggle('low', rem < 15000);
+}
+
+const OPEN = {};
+render = function () {
+  if (!root) return;
+  const keep = captureFocus();
+  cue();
+  renderHeader();
+  clear(mainEl);
+  if (S.err) mainEl.appendChild(errBar());
+  screen().forEach(function (n) { add(mainEl, n); });
+  mainEl.querySelectorAll('details[id]').forEach(function (d) {
+    if (Object.prototype.hasOwnProperty.call(OPEN, d.id)) d.open = OPEN[d.id];
+    d.addEventListener('toggle', function () { OPEN[d.id] = d.open; });
+  });
+  renderDock();
+  restoreFocus(keep);
+  tickTimer();
+};
+
+function init() {
+  root = document.getElementById('app');
+  const t = store('theme');
+  if (t === 'light' || t === 'dark') setTheme(t);
+  hdrEl = h('header', { class: 'hdr', id: 'hdr' });
+  mainEl = h('main', { class: 'main', id: 'main' });
+  buildDock();
+  const side = h('div', { class: 'side' }, dockEl);
+  add(root, hdrEl, h('div', { class: 'cols' }, mainEl, side));
+  render();
+  setInterval(tickTimer, 500);
+  setTimeout(function () { if (S.boot) { S.boot = false; render(); } }, 12000);
+  initOnline().catch(function (e) { S.boot = false; setErr(e); });
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+
+window.__mafia = { S: S, H: H, L: L, E: E };   // handy for debugging and tests
+})();
+
+</script>
+
+</body>
+</html>

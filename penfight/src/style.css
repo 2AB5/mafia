@@ -163,6 +163,29 @@ input[type=text], select { min-height: 46px; padding: 9px 13px; border-radius: 1
 .ticker { margin: 0; text-align: center; color: var(--muted); font-size: 14px; }
 .watching { margin: 0; text-align: center; font-weight: 700; color: var(--muted); }
 
+/* teams */
+.teamb { font-style: normal; font-size: 11px; font-weight: 800; padding: 2px 9px; border-radius: 99px; color: #fff; border: 0; text-transform: uppercase; letter-spacing: .05em; }
+button.teamb { cursor: pointer; min-height: 28px; }
+.teamb.t0, .bigteam.t0 { background: #2f66d0; }
+.teamb.t1, .bigteam.t1 { background: #d6455d; }
+.seat.t0 { box-shadow: inset 4px 0 0 #2f66d0; }
+.seat.t1 { box-shadow: inset 4px 0 0 #d6455d; }
+.hud .chip.t0 { box-shadow: inset 3px 0 0 #2f66d0; }
+.hud .chip.t1 { box-shadow: inset 3px 0 0 #d6455d; }
+.hud .chip.t0.active, .hud .chip.t1.active { box-shadow: 0 0 0 2px var(--gold); }
+.hudwrap { display: flex; flex-direction: column; gap: 8px; }
+.teambar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+.tside { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-radius: 10px; color: #fff; font-weight: 800; flex: 1 1 0; min-width: 0; }
+.tside.t1 { flex-direction: row-reverse; }
+.tside.t0 { background: #2f66d0; }
+.tside.t1 { background: #d6455d; }
+.tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tscore { font-family: var(--f-hand); font-size: 30px; line-height: 1; }
+.tvs { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; }
+.bigteam { color: #fff; font-weight: 800; padding: 4px 14px; border-radius: 99px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
+.ovcard.t0 { border-top: 6px solid #2f66d0; }
+.ovcard.t1 { border-top: 6px solid #d6455d; }
+
 /* connection, toast */
 .connwrap { margin-bottom: 12px; }
 .connbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--gold) 18%, var(--surface)); border: 1px solid color-mix(in srgb, var(--gold) 50%, var(--line)); }

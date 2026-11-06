@@ -3,14 +3,18 @@ const PF = (function () {
   'use strict';
   const pl = (typeof planck !== 'undefined') ? planck : require('planck');
 
-  const TABLE = { w: 6, h: 9 };                 // desk, centred on 0,0 (world units ~ 5 cm)
+  const TABLE = { w: 8, h: 12 };                // biggest desk, centred on 0,0 (a pen is 1.6 units long)
+  /* the desk grows with the number of players: a tight duel for 2, the full desk for 4-5 */
+  function tableFor(n) { return n <= 2 ? { w: 6, h: 9 } : n === 3 ? { w: 7, h: 10.5 } : { w: 8, h: 12 }; }
   const PEN = { len: 1.6, wid: 0.17 };
-  function PEN_LEN_FOR_FRICTION() { return PEN.len; }
-  const MAX_IMPULSE = 3.5;
-  // Desk friction. Sliding (Coulomb) friction removes a fixed amount of speed every second, so a pen
-  // slows steadily and then stops dead, the way it does on a real desk (plain damping makes it creep on ice).
-  const SLIDE_DECEL = 6.0;                    // units/s^2
-  const SPIN_DECEL = 3 * SLIDE_DECEL * 3 / PEN_LEN_FOR_FRICTION(); // rad/s^2: a spinning pen grips the desk along its whole length, so spin dies quickly
+  const PEN_MASS = PEN.len * PEN.wid;            // density 1
+  const PEN_INERTIA = PEN_MASS * (PEN.len * PEN.len + PEN.wid * PEN.wid) / 12;
+  // Desk friction: sliding (Coulomb) friction takes a fixed amount of speed off every second, so a pen
+  // slows steadily and stops dead, like on a real desk. Spin dies faster: a spinning pen grips along its length.
+  const SLIDE_DECEL = 10.0;                      // units/s^2
+  const SPIN_DECEL = 55;                         // rad/s^2
+  const MAX_TRAVEL = 7;                          // a full flick slides about 4.4 pen lengths if it hits nothing
+  const MAX_IMPULSE = PEN_MASS * Math.sqrt(2 * SLIDE_DECEL * MAX_TRAVEL);
   const MIN_PLAYERS = 2, MAX_PLAYERS = 5;
   const DT = 1 / 60;
   const MAX_ROLL_SECS = 12;
@@ -26,25 +30,43 @@ const PF = (function () {
   ];
   function skinById(id) { return SKINS.find(function (s) { return s.id === id; }) || SKINS[0]; }
 
-  function defaultConfig() { return { target: 3, turnSecs: 30 }; }
+  const TEAMS = [{ name: 'Blue team', color: '#2f66d0' }, { name: 'Red team', color: '#d6455d' }];
+  function defaultConfig() { return { target: 3, turnSecs: 30, teams: false }; }
   function normalizeConfig(c) {
     c = c || {};
     const t = Number(c.target), s = Number(c.turnSecs);
     return {
       target: [1, 2, 3, 5].indexOf(t) !== -1 ? t : 3,
-      turnSecs: [0, 20, 30, 45].indexOf(s) !== -1 ? s : 30
+      turnSecs: [0, 20, 30, 45].indexOf(s) !== -1 ? s : 30,
+      teams: !!c.teams
     };
+  }
+  /* split players into two teams, keeping any valid choices and balancing the rest */
+  function balanceTeams(players) {
+    const out = players.map(function (p) { return { id: p.id, team: p.team === 0 || p.team === 1 ? p.team : null }; });
+    const count = [0, 0];
+    out.forEach(function (p) { if (p.team !== null) count[p.team]++; });
+    out.forEach(function (p) { if (p.team === null) { p.team = count[0] <= count[1] ? 0 : 1; count[p.team]++; } });
+    // never leave a team empty, and keep the difference at most one
+    while (Math.abs(count[0] - count[1]) > 1 || (out.length >= 2 && (count[0] === 0 || count[1] === 0))) {
+      const big = count[0] > count[1] ? 0 : 1;
+      const mover = out.slice().reverse().find(function (p) { return p.team === big; });
+      mover.team = 1 - big; count[big]--; count[1 - big]++;
+    }
+    const map = {}; out.forEach(function (p) { map[p.id] = p.team; });
+    return map;
   }
 
   /* ---------- placement ---------- */
-  function startPositions(n, rng) {
+  function startPositions(n, rng, t) {
+    t = t || tableFor(n);
     const out = [];
     const rot = rng() * Math.PI * 2;
-    const rx = n === 2 ? 0 : 1.75, ry = n === 2 ? 2.7 : 2.75;
+    const rx = t.w * 0.29, ry = t.h * 0.28;
     for (let i = 0; i < n; i++) {
       const th = rot + (i / n) * Math.PI * 2;
       let x = rx * Math.cos(th), y = ry * Math.sin(th);
-      if (n === 2) { x = (rng() - 0.5) * 1.2; y = i === 0 ? -2.7 : 2.7; }
+      if (n === 2) { x = (rng() - 0.5) * t.w * 0.2; y = (i === 0 ? -1 : 1) * t.h * 0.275; }
       // pens lie roughly sideways to the centre, with a little randomness
       const facing = Math.atan2(-y, -x);
       const a = facing + Math.PI / 2 + (rng() - 0.5) * 0.9;
@@ -54,7 +76,7 @@ const PF = (function () {
   }
   function normAngle(a) { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; }
   function round3(v) { return Math.round(v * 1000) / 1000; }
-  function onTable(x, y) { return Math.abs(x) <= TABLE.w / 2 && Math.abs(y) <= TABLE.h / 2; }
+  function onTable(x, y, t) { t = t || TABLE; return Math.abs(x) <= t.w / 2 && Math.abs(y) <= t.h / 2; }
 
   /* ---------- match ---------- */
   function cleanName(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, 14) || 'Player'; }
@@ -64,11 +86,23 @@ const PF = (function () {
     if (n < MIN_PLAYERS || n > MAX_PLAYERS) throw new Error('Pen Fight needs ' + MIN_PLAYERS + ' to ' + MAX_PLAYERS + ' players.');
     const seen = {};
     opts.players.forEach(function (p) { if (seen[p.id]) throw new Error('Duplicate player id.'); seen[p.id] = true; });
+    const cfg = normalizeConfig(opts.cfg);
+    if (cfg.teams) {
+      if (n < 3) throw new Error('Teams need at least 3 players.');
+      opts.players.forEach(function (p) { if (p.team !== 0 && p.team !== 1) throw new Error('Every player needs a team.'); });
+      const c = [0, 0]; opts.players.forEach(function (p) { c[p.team]++; });
+      if (!c[0] || !c[1]) throw new Error('Both teams need at least one player.');
+    }
     const m = {
       v: 1,
       id: opts.id || ('m' + Math.floor(rng() * 1e9).toString(36)),
-      cfg: normalizeConfig(opts.cfg),
-      players: opts.players.map(function (p) { return { id: p.id, name: cleanName(p.name), skin: skinById(p.skin).id, score: 0 }; }),
+      cfg: cfg,
+      players: opts.players.map(function (p) { const q = { id: p.id, name: cleanName(p.name), skin: skinById(p.skin).id, score: 0 }; if (cfg.teams) q.team = p.team; return q; }),
+      table: tableFor(n),
+      teamScore: cfg.teams ? [0, 0] : null,
+      teamNext: cfg.teams ? [0, 0] : null,
+      roundTeam: null,
+      winnerTeam: null,
       round: 0,
       phase: 'aim',          // 'aim' | 'roll' | 'roundover' | 'over'
       pens: [],
@@ -86,15 +120,30 @@ const PF = (function () {
   function startRound(m, rng) {
     rng = rng || Math.random;
     m.round++;
-    const pos = startPositions(m.players.length, rng);
-    m.pens = m.players.map(function (p, i) { return { id: p.id, x: pos[i].x, y: pos[i].y, a: pos[i].a, out: false }; });
-    m.starter = (m.round - 1) % m.players.length;
-    m.turn = m.players[m.starter].id;
+    if (!m.table) m.table = tableFor(m.players.length);
+    const pos = startPositions(m.players.length, rng, m.table);
+    // in teams, seat players alternately so teammates are not side by side
+    let seatOrder = m.players.map(function (p, i) { return i; });
+    if (m.teamScore) {
+      const a = seatOrder.filter(function (i) { return m.players[i].team === 0; }), b = seatOrder.filter(function (i) { return m.players[i].team === 1; });
+      seatOrder = [];
+      for (let k = 0; k < Math.max(a.length, b.length); k++) { if (k < a.length) seatOrder.push(a[k]); if (k < b.length) seatOrder.push(b[k]); }
+    }
+    const seatOf = {}; seatOrder.forEach(function (pi, si) { seatOf[pi] = si; });
+    m.pens = m.players.map(function (p, i) { const q = pos[seatOf[i]]; return { id: p.id, x: q.x, y: q.y, a: q.a, out: false }; });
     m.turnNo++;
     m.phase = 'aim';
-    m.roundWinner = null;
+    m.roundWinner = null; m.roundTeam = null;
     m.lastShot = null;
-    addLog(m, 'Round ' + m.round + '. ' + nameOf(m, m.turn) + ' flicks first.');
+    if (m.teamScore) {
+      const t = (m.round - 1) % 2;
+      m.turn = teamPick(m, t);
+      addLog(m, 'Round ' + m.round + '. ' + TEAMS[t].name + ' starts: ' + nameOf(m, m.turn) + ' flicks first.');
+    } else {
+      m.starter = (m.round - 1) % m.players.length;
+      m.turn = m.players[m.starter].id;
+      addLog(m, 'Round ' + m.round + '. ' + nameOf(m, m.turn) + ' flicks first.');
+    }
     return m;
   }
   function nameOf(m, id) { const p = m.players.find(function (q) { return q.id === id; }); return p ? p.name : 'Player'; }
@@ -102,7 +151,31 @@ const PF = (function () {
   function alivePens(m) { return m.pens.filter(function (p) { return !p.out; }); }
   function addLog(m, x) { m.log.push(x); if (m.log.length > 40) m.log.splice(0, m.log.length - 40); }
 
+  function teamOf(m, id) { const p = m.players.find(function (q) { return q.id === id; }); return p && p.team !== undefined ? p.team : null; }
+  /* next member of team t whose pen is still on the desk (rotating through the team) */
+  function teamPick(m, t) {
+    const mem = m.players.filter(function (p) { return p.team === t; });
+    for (let k = 0; k < mem.length; k++) {
+      const idx = (m.teamNext[t] + k) % mem.length;
+      const pen = penOf(m, mem[idx].id);
+      if (!pen || !pen.out) { m.teamNext[t] = (idx + 1) % mem.length; return mem[idx].id; }
+    }
+    return null;
+  }
+  /* sides still in the round: each player in free-for-all, each team in teams */
+  function aliveSides(m) {
+    const set = {};
+    alivePens(m).forEach(function (p) { set[m.teamScore ? 't' + teamOf(m, p.id) : p.id] = true; });
+    return Object.keys(set);
+  }
   function nextTurn(m) {
+    if (m.teamScore) {
+      const t = teamOf(m, m.turn);
+      const other = t === null ? 0 : 1 - t;
+      const id = teamPick(m, other) || teamPick(m, 1 - other);
+      if (id) { m.turn = id; m.turnNo++; m.phase = 'aim'; }
+      return id;
+    }
     const order = m.players.map(function (p) { return p.id; });
     let i = order.indexOf(m.turn);
     for (let k = 1; k <= order.length; k++) {
@@ -147,9 +220,27 @@ const PF = (function () {
     });
     const shooter = m.lastShot ? m.lastShot.by : m.turn;
     if (fell.length) {
-      fell.forEach(function (id) { addLog(m, id === shooter ? nameOf(m, id) + ' flicked themselves off the desk!' : nameOf(m, id) + ' was knocked off by ' + nameOf(m, shooter) + '.'); });
+      fell.forEach(function (id) {
+        const mate = m.teamScore && teamOf(m, id) === teamOf(m, shooter);
+        addLog(m, id === shooter ? nameOf(m, id) + ' flicked themselves off the desk!'
+          : mate ? nameOf(m, shooter) + ' knocked their own teammate ' + nameOf(m, id) + ' off!'
+          : nameOf(m, id) + ' was knocked off by ' + nameOf(m, shooter) + '.');
+      });
     }
     const alive = alivePens(m);
+    if (m.teamScore) {
+      const sides = aliveSides(m);
+      if (sides.length > 1) { nextTurn(m); return { fell: fell, roundOver: false }; }
+      m.phase = 'roundover';
+      if (sides.length === 1) {
+        const t = Number(sides[0].slice(1));
+        m.teamScore[t]++;
+        m.roundTeam = t;
+        addLog(m, TEAMS[t].name + ' wins round ' + m.round + '.');
+        if (m.teamScore[t] >= m.cfg.target) { m.phase = 'over'; m.winnerTeam = t; addLog(m, TEAMS[t].name + ' wins the match!'); }
+      } else addLog(m, 'Every pen fell. Round ' + m.round + ' is a draw.');
+      return { fell: fell, roundOver: true };
+    }
     if (alive.length <= 1) {
       m.phase = 'roundover';
       if (alive.length === 1) {
@@ -174,9 +265,9 @@ const PF = (function () {
     if (!pen || pen.out || m.phase === 'over') return false;
     pen.out = true;
     addLog(m, nameOf(m, pid) + ' left the desk.');
-    const alive = alivePens(m);
-    if (m.phase === 'aim' && alive.length > 1 && m.turn === pid) nextTurn(m);
-    if (alive.length <= 1 && (m.phase === 'aim' || m.phase === 'roll')) {
+    const sides = aliveSides(m).length;
+    if (m.phase === 'aim' && sides > 1 && m.turn === pid) nextTurn(m);
+    if (sides <= 1 && (m.phase === 'aim' || m.phase === 'roll')) {
       return settle(m, m.pens.map(function (p) { return { x: p.x, y: p.y, a: p.a, out: p.out }; }));
     }
     return { fell: [pid], roundOver: false };
@@ -184,6 +275,7 @@ const PF = (function () {
 
   /* ---------- physics ---------- */
   function Sim(m) {
+    this.table = m.table || tableFor(m.players.length);
     this.world = new pl.World({ gravity: pl.Vec2(0, 0) });
     this.bodies = [];
     this.hits = 0;
@@ -191,8 +283,8 @@ const PF = (function () {
     const self = this;
     m.pens.forEach(function (pen, i) {
       if (pen.out) { self.bodies.push(null); return; }
-      const b = self.world.createBody({ type: 'dynamic', position: pl.Vec2(pen.x, pen.y), angle: pen.a, linearDamping: 0.12, angularDamping: 0.2, bullet: true });
-      b.createFixture(pl.Box(PEN.len / 2, PEN.wid / 2), { density: 1, friction: 0.25, restitution: 0.6 });
+      const b = self.world.createBody({ type: 'dynamic', position: pl.Vec2(pen.x, pen.y), angle: pen.a, linearDamping: 0, angularDamping: 0, bullet: true });
+      b.createFixture(pl.Box(PEN.len / 2, PEN.wid / 2), { density: 1, friction: 0.45, restitution: 0.6 });
       b.setUserData(i);
       self.bodies.push(b);
     });
@@ -226,7 +318,7 @@ const PF = (function () {
       const b = this.bodies[i];
       if (!b || this.out[i]) continue;
       const p = b.getPosition();
-      if (!onTable(p.x, p.y)) {
+      if (!onTable(p.x, p.y, this.table)) {
         this.out[i] = true;
         fell.push(i);
         this.lastPose = this.lastPose || {};
@@ -281,13 +373,29 @@ const PF = (function () {
     return settle(m, sim.poses(m));
   }
 
+  /* where a flick would leave the pen if it hit nothing: { x, y, a, dist } */
+  function predict(pose, shot) {
+    let ix = shot.ix, iy = shot.iy;
+    const mag = Math.hypot(ix, iy);
+    if (mag > MAX_IMPULSE) { ix = ix / mag * MAX_IMPULSE; iy = iy / mag * MAX_IMPULSE; }
+    const lx = Math.max(-PEN.len / 2, Math.min(PEN.len / 2, shot.lx || 0));
+    const vx = ix / PEN_MASS, vy = iy / PEN_MASS, v = Math.hypot(vx, vy);
+    const ux = Math.cos(pose.a), uy = Math.sin(pose.a);
+    const w0 = lx * (ux * iy - uy * ix) / PEN_INERTIA;
+    const d = v * v / (2 * SLIDE_DECEL);
+    return { x: pose.x + (v ? vx / v : 0) * d, y: pose.y + (v ? vy / v : 0) * d, a: pose.a + Math.sign(w0) * w0 * w0 / (2 * SPIN_DECEL), dist: d };
+  }
+  function impulseForPull(pull) { return Math.sqrt(Math.max(0, Math.min(1, pull))) * MAX_IMPULSE; }
+
   function standings(m) {
     return m.players.slice().sort(function (a, b) { return b.score - a.score; });
   }
+  function isOverFor(m) { return m.phase === 'over'; }
 
   return {
-    TABLE: TABLE, PEN: PEN, MAX_IMPULSE: MAX_IMPULSE, MIN_PLAYERS: MIN_PLAYERS, MAX_PLAYERS: MAX_PLAYERS, DT: DT, SKINS: SKINS,
-    skinById: skinById, defaultConfig: defaultConfig, normalizeConfig: normalizeConfig, startPositions: startPositions, onTable: onTable,
+    TEAMS: TEAMS, balanceTeams: balanceTeams, teamOf: teamOf, aliveSides: aliveSides, isOverFor: isOverFor,
+    TABLE: TABLE, PEN: PEN, MAX_IMPULSE: MAX_IMPULSE, MAX_TRAVEL: MAX_TRAVEL, predict: predict, impulseForPull: impulseForPull, MIN_PLAYERS: MIN_PLAYERS, MAX_PLAYERS: MAX_PLAYERS, DT: DT, SKINS: SKINS,
+    skinById: skinById, defaultConfig: defaultConfig, normalizeConfig: normalizeConfig, startPositions: startPositions, onTable: onTable, tableFor: tableFor,
     newMatch: newMatch, startRound: startRound, nextTurn: nextTurn, checkShot: checkShot, skipTurn: skipTurn, settle: settle, forfeit: forfeit,
     Sim: Sim, beginShot: beginShot, simulateShot: simulateShot, penOf: penOf, alivePens: alivePens, nameOf: nameOf, standings: standings, normAngle: normAngle
   };

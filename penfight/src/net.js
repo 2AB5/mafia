@@ -60,7 +60,7 @@ function hostBoot() {
 }
 function localBegin(players, cfg) {
   H.local = true; H.peer = null; H.conns.clear();
-  H.room = ''; H.myId = ''; H.roster = players.map(function (p, i) { return { id: 'L' + i, token: '', name: cleanName(p.name) || 'Player ' + (i + 1), skin: p.skin }; });
+  H.room = ''; H.myId = ''; H.roster = players.map(function (p, i) { return { id: 'L' + i, token: '', name: cleanName(p.name) || 'Player ' + (i + 1), skin: p.skin, team: p.team }; });
   H.cfg = PF.normalizeConfig(cfg);
   S.isHost = true; S.screen = 'local'; S.room = ''; S.conn = 'open';
   hostEnsureLoop();
@@ -132,6 +132,7 @@ function hostHandle(rec, d) {
       r = { id: 'p' + randId(7), token: rec.token, name: '', skin: '' };
       r.name = hostUniqueName(d.name, r.id); r.skin = hostUniqueSkin(d.skin, r.id);
       H.roster.push(r);
+      hostRebalance();
       SFX.join();
     }
     rec.pid = r.id;
@@ -151,12 +152,36 @@ function hostHandle(rec, d) {
 }
 
 /* ---------- host game control ---------- */
-function hostSetCfg(patch) { if (H.match) return; H.cfg = PF.normalizeConfig(Object.assign({}, H.cfg, patch)); hostChanged(); }
+function hostSetCfg(patch) {
+  if (H.match) return;
+  H.cfg = PF.normalizeConfig(Object.assign({}, H.cfg, patch));
+  hostRebalance();
+  hostChanged();
+}
+/* keep every seated player on a team (teams mode), balanced, honouring choices already made */
+function hostRebalance() {
+  if (!H.cfg.teams) return;
+  const map = PF.balanceTeams(H.roster.map(function (r) { return { id: r.id, team: r.team }; }));
+  H.roster.forEach(function (r) { r.team = map[r.id]; });
+}
+function hostSetTeam(id, team) {
+  if (H.match || !H.cfg.teams || (team !== 0 && team !== 1)) return;
+  const r = H.roster.find(function (x) { return x.id === id; });
+  if (!r) return;
+  const others = H.roster.filter(function (x) { return x.id !== id; });
+  if (others.length && others.every(function (x) { return x.team === team; })) { toast('Each team needs at least one player.'); return; }
+  r.team = team;
+  hostChanged();
+}
 function hostArmTurn() { H.deadline = H.cfg.turnSecs ? Date.now() + H.cfg.turnSecs * 1000 : 0; H.aim = null; }
 function hostStart() {
   const n = H.roster.length;
   if (n < PF.MIN_PLAYERS || n > PF.MAX_PLAYERS) { setErr('You need ' + PF.MIN_PLAYERS + ' to ' + PF.MAX_PLAYERS + ' players.'); return; }
-  H.match = PF.newMatch({ players: H.roster.map(function (r) { return { id: r.id, name: r.name, skin: r.skin }; }), cfg: H.cfg, rng: secureRng });
+  if (H.cfg.teams && n < 3) { setErr('Teams need at least 3 players.'); return; }
+  hostRebalance();
+  try {
+    H.match = PF.newMatch({ players: H.roster.map(function (r) { return { id: r.id, name: r.name, skin: r.skin, team: r.team }; }), cfg: H.cfg, rng: secureRng });
+  } catch (e) { setErr(e.message); return; }
   H.sim = null; H.offlineSince = {};
   hostArmTurn();
   hostChanged();
@@ -291,7 +316,7 @@ function hostSnapshot(pid) {
   const m = H.match;
   return {
     t: 'state', you: pid || null, local: H.local, room: H.room, hostId: H.myId,
-    roster: H.roster.map(function (r) { return { id: r.id, name: r.name, skin: r.skin, on: !!on[r.id] }; }),
+    roster: H.roster.map(function (r) { return { id: r.id, name: r.name, skin: r.skin, team: H.cfg.teams ? r.team : null, on: !!on[r.id] }; }),
     cfg: H.cfg, match: m,
     deadlineIn: m && m.phase === 'aim' && H.deadline ? Math.max(0, H.deadline - Date.now()) : null,
     nextRoundIn: m && m.phase === 'roundover' ? Math.max(0, H.nextRoundAt - Date.now()) : null

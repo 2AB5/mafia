@@ -37,7 +37,7 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     const off = (grabOffset || 0) * a.scale;
     const gx = a.x + Math.cos(a.a) * off, gy = a.y + Math.sin(a.a) * off;
     const dx = b.x - gx, dy = b.y - gy, d = Math.hypot(dx, dy);
-    const pull = power * 2.6 * a.scale;
+    const pull = power * 3.0 * a.scale;
     await pg.mouse.move(gx, gy); await pg.mouse.down();
     const steps = 8;
     for (let i = 1; i <= steps; i++) await pg.mouse.move(gx - dx / d * pull * i / steps, gy - dy / d * pull * i / steps);
@@ -67,6 +67,20 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     const sk = await ev(host, 'window.__pf.S.st.roster.map(r => r.skin).join(",")');
     check(new Set(sk.split(',')).size === n, 'pens are unique: ' + sk);
     if (opts.shots) { await sleep(300); await host.screenshot({ path: path.join(SHOTS, '02-lobby.png'), fullPage: true }); }
+    if (opts.teams) {
+      await host.click('#cfgMode [data-v="true"]');
+      await waitFor(async () => (await host.$$('.seat .teamb')).length === n, 'team badges on every seat');
+      const counts = await ev(host, '[0,1].map(t => window.__pf.S.st.roster.filter(r => r.team === t).length)');
+      check(Math.abs(counts[0] - counts[1]) <= 1 && counts[0] > 0 && counts[1] > 0, 'teams auto-balanced ' + counts);
+      const pid = await ev(host, 'window.__pf.S.st.roster[1].id');
+      const before = await ev(host, 'window.__pf.S.st.roster[1].team');
+      await host.click('.seat[data-id="' + pid + '"] button.teamb');
+      await waitFor(async () => (await ev(host, 'window.__pf.S.st.roster[1].team')) === 1 - before, 'team switch');
+      await waitFor(async () => (await ev(pages[1], "(window.__pf.S.st.roster.find(r => r.id === '" + pid + "') || {}).team")) === 1 - before, 'switch reached the player');
+      await host.click('.seat[data-id="' + pid + '"] button.teamb');
+      await waitFor(async () => (await ev(host, 'window.__pf.S.st.roster[1].team')) === before, 'team switch back');
+      if (opts.shots) { await sleep(200); await host.screenshot({ path: path.join(SHOTS, '09-team-lobby.png'), fullPage: true }); }
+    }
     await host.click('#cfgTarget [data-v="' + (opts.target || 2) + '"]');
     await host.click('#cfgTimer [data-v="0"]');
     await sleep(100);
@@ -75,7 +89,7 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     const idOf = [];
     for (const pg of pages) idOf.push(await ev(pg, 'window.__pf.S.me'));
     let shots = 0, framesSeen = 0, reloaded = false, rounds = new Set(), sawSpin = false;
-    while (shots < 140) {
+    while (shots < 260) {
       const m = await ev(host, 'window.__pf.H.match');
       if (m.phase === 'over') break;
       if (m.phase === 'roundover') { await waitFor(() => ev(host, "window.__pf.H.match.phase !== 'roundover'"), 'next round starts', 10000); continue; }
@@ -91,9 +105,11 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
         await waitFor(() => ev(victim, "window.__pf.S.conn === 'open' && !!window.__pf.S.st && !!window.__pf.S.st.match && !!window.__pf.S.me"), 'player rejoined mid-match', 30000);
         console.log('    player reload mid-match: rejoined the same seat');
       }
-      const alive = m.pens.filter(p => !p.out && p.id !== m.turn);
+      const myTeam = m.teamScore ? m.players.find(p => p.id === m.turn).team : null;
+      const alive = m.pens.filter(p => !p.out && p.id !== m.turn && (myTeam === null || m.players.find(q => q.id === p.id).team !== myTeam));
       const target = alive[Math.floor(Math.random() * alive.length)].id;
-      const power = 0.7 + Math.random() * 0.3;
+      const tp = m.pens.find(p => p.id === target), mp = m.pens.find(p => p.id === m.turn);
+      const power = Math.random() < 0.5 ? 1 : Math.min(1, Math.hypot(tp.x - mp.x, tp.y - mp.y) / 7 + 0.45);   // reach the target and push through
       const grab = (Math.random() - 0.5) * 1.2;
       const before = m.turnNo;
       await flick(pg, m.turn, target, power, grab, opts.shots && shots === 0 ? '03-aiming.png' : null);
@@ -117,12 +133,21 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
       }
       if (opts.shots && shots === 1) await pages[1].screenshot({ path: path.join(SHOTS, '05-after-shot.png') });
       const ph = await ev(host, 'window.__pf.H.match.phase');
-      if (ph === 'roundover' && opts.shots && !opts._rshot) { opts._rshot = 1; await sleep(400); await pages[1].screenshot({ path: path.join(SHOTS, '06-round-over.png') }); }
+      if (ph === 'roundover' && opts.shots && !opts._rshot) { opts._rshot = 1; await sleep(400); await pages[1].screenshot({ path: path.join(SHOTS, (opts.teams ? '10-team-' : '06-') + 'round-over.png') }); }
+      if (opts.teams && opts.shots && shots === 2) await pages[2].screenshot({ path: path.join(SHOTS, '11-team-game.png') });
     }
     const fm = await ev(host, 'window.__pf.H.match');
     check(fm.phase === 'over', 'match finished (' + shots + ' shots)');
-    const w = fm.players.find(p => p.id === fm.winner);
-    check(w && w.score === (opts.target || 2), 'winner reached target');
+    let w;
+    if (opts.teams) {
+      check(fm.winnerTeam === 0 || fm.winnerTeam === 1, 'a team won');
+      check(fm.teamScore[fm.winnerTeam] === (opts.target || 2), 'winning team reached target');
+      w = { name: ['Blue', 'Red'][fm.winnerTeam] + ' team', score: fm.teamScore[fm.winnerTeam] };
+      for (const pg of pages) { await waitFor(() => pg.$('#overCard'), 'over card'); check(/team wins the match/i.test(await pg.textContent('#overCard')), 'team winner shown'); }
+    } else {
+      w = fm.players.find(p => p.id === fm.winner);
+      check(w && w.score === (opts.target || 2), 'winner reached target');
+    }
     check(framesSeen > 0, 'watchers received streamed frames');
     for (const pg of pages) await waitFor(() => pg.$('#winner'), 'winner shown everywhere');
     if (opts.shots) await pages[1].screenshot({ path: path.join(SHOTS, '07-match-over.png') });
@@ -136,7 +161,7 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     // skip a turn by host when the shooter is someone else
     const t0 = await ev(host, 'window.__pf.H.match.turn');
     if (t0 !== idOf[0]) { await host.click('#cf-skip'); await host.click('#cf-skip'); await waitFor(async () => (await ev(host, 'window.__pf.H.match.turn')) !== t0, 'host skip'); }
-    console.log('  online ' + n + ' players: ' + w.name + ' won ' + fm.players.map(p => p.name + ' ' + p.score).join(', ') + ' after ' + shots + ' shots over ' + rounds.size + ' rounds' + (sawSpin ? ', spin shots included' : ''));
+    console.log('  online ' + n + ' players' + (opts.teams ? ' (teams)' : '') + ': ' + w.name + ' won' + (opts.teams ? ' ' + fm.teamScore.join('-') : ' ' + fm.players.map(p => p.name + ' ' + p.score).join(', ')) + ' after ' + shots + ' shots over ' + rounds.size + ' rounds' + (sawSpin ? ', spin shots included' : ''));
     for (const pg of pages) await pg.context().close();
   }
 
@@ -148,12 +173,13 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     await pg.click('#localStart');
     await waitFor(() => pg.$('#desk'), 'local desk');
     let shots = 0;
-    while (shots < 120) {
+    while (shots < 300) {
       const m = await ev(pg, 'window.__pf.H.match');
       if (m.phase === 'over') break;
       if (m.phase !== 'aim') { await sleep(60); continue; }
       const alive = m.pens.filter(p => !p.out && p.id !== m.turn);
-      await flick(pg, m.turn, alive[0].id, 0.9, 0, shots === 0 ? '08-local-wide.png' : null);
+      const tp = alive[0], mp = m.pens.find(p => p.id === m.turn);
+      await flick(pg, m.turn, tp.id, Math.random() < 0.5 ? 1 : Math.min(1, Math.hypot(tp.x - mp.x, tp.y - mp.y) / 7 + 0.45), (Math.random() - 0.5) * 0.4, shots === 0 ? '08-local-wide.png' : null);
       await waitFor(() => ev(pg, "window.__pf.H.match.phase !== 'aim' || window.__pf.H.match.turnNo !== " + m.turnNo), 'local shot', 5000).catch(() => {});
       await waitFor(() => ev(pg, "window.__pf.H.match.phase !== 'roll'"), 'local settle', 20000);
       shots++;
@@ -165,8 +191,9 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     await pg.context().close();
   }
   try {
-    await onlineMatch(5, { shots: true, reload: true, target: 2 });
+    await onlineMatch(5, { shots: true, reload: true, target: 1 });
     await onlineMatch(2, { target: 1 });
+    await onlineMatch(4, { teams: true, target: 2, shots: true });
     await localMatch();
   } catch (e) { fails++; console.log('  ERROR ' + e.stack); }
   check(errors.length === 0, 'page errors:\n    ' + errors.slice(0, 10).join('\n    '));

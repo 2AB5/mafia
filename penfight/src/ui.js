@@ -1,8 +1,9 @@
 /* ===== ui: screens, desk renderer, flick controls ===== */
 let root, hdrEl, connEl, mainEl, toastEl;
 let stage = null;            // persistent { wrap, canvas, ctx, overlay, w, h, dpr, scale, wood }
-const VIEW = { w: PF.TABLE.w + 1.4, h: PF.TABLE.h + 1.4 };
-const DRAG_FULL = 2.6;       // world units of pull for full power
+function desk() { const m = match(); return (m && m.table) || PF.tableFor(m ? m.players.length : 5); }
+function view() { const t = desk(); return { w: t.w + 0.8, h: t.h + 0.8 }; }
+const DRAG_FULL = 3.0;       // world units of pull for full power (longer pull = finer control)
 const fallAnim = {};
 let drag = null, lastAimSent = 0;
 
@@ -13,6 +14,14 @@ function rosterEntry(id) { return S.st && S.st.roster ? S.st.roster.find(functio
 function nameOf(id) { const m = match(); if (m) return PF.nameOf(m, id); const r = rosterEntry(id); return r ? r.name : 'Player'; }
 function skinOf(id) { const m = match(); const p = m && m.players.find(function (q) { return q.id === id; }); const r = rosterEntry(id); return PF.skinById(p ? p.skin : r ? r.skin : 'blue'); }
 function isLocal() { return S.screen === 'local'; }
+function teamsOn() { const m = match(); return m ? !!m.teamScore : !!(S.st && S.st.cfg && S.st.cfg.teams); }
+function teamBadge(t, onClick) {
+  const T = PF.TEAMS[t];
+  const lab = T.name.replace(' team', '');
+  return onClick
+    ? h('button', { type: 'button', class: 'teamb t' + t, 'aria-label': 'Team ' + lab + '. Tap to switch', 'data-team': String(t), onclick: onClick }, lab)
+    : h('em', { class: 'teamb t' + t, 'data-team': String(t), text: lab });
+}
 function shooterIsMe() { const m = match(); return !!m && (isLocal() || m.turn === S.me); }
 function canShoot() { const m = match(); return !!m && m.phase === 'aim' && shooterIsMe() && (isLocal() || S.conn === 'open'); }
 
@@ -132,20 +141,21 @@ function sizeStage() {
   const parentW = s.wrap.parentElement ? s.wrap.parentElement.clientWidth : 360;
   const top = s.wrap.getBoundingClientRect().top;
   const availH = Math.max(340, window.innerHeight - Math.max(0, top) - 132);
-  let cw = Math.min(parentW, 620), ch = cw * VIEW.h / VIEW.w;
-  if (ch > availH) { ch = availH; cw = ch * VIEW.w / VIEW.h; }
+  const V = view(), T = desk();
+  let cw = Math.min(parentW, 620), ch = cw * V.h / V.w;
+  if (ch > availH) { ch = availH; cw = ch * V.w / V.h; }
   cw = Math.floor(cw); ch = Math.floor(ch);
   const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
-  if (cw === s.w && ch === s.h && dpr === s.dpr) return;
-  s.w = cw; s.h = ch; s.dpr = dpr;
+  if (cw === s.w && ch === s.h && dpr === s.dpr && s.tw === T.w && s.th === T.h) return;
+  s.w = cw; s.h = ch; s.dpr = dpr; s.tw = T.w; s.th = T.h;
   s.canvas.style.width = cw + 'px'; s.canvas.style.height = ch + 'px';
   s.canvas.width = Math.round(cw * dpr); s.canvas.height = Math.round(ch * dpr);
-  s.scale = cw / VIEW.w;
+  s.scale = cw / V.w;
   s.wood = makeWood(s);
 }
 function makeWood(s) {
   const k = s.scale * s.dpr;
-  const W = Math.round(PF.TABLE.w * k), Ht = Math.round(PF.TABLE.h * k);
+  const T = desk(); const W = Math.round(T.w * k), Ht = Math.round(T.h * k);
   const c = document.createElement('canvas'); c.width = W; c.height = Ht;
   const x = c.getContext('2d');
   let seed = 7; const rnd = function () { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
@@ -223,7 +233,7 @@ function drawDesk() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, s.canvas.width, s.canvas.height);
   ctx.setTransform(k, 0, 0, k, (s.w / 2) * s.dpr, (s.h / 2) * s.dpr);
-  const tw = PF.TABLE.w, th = PF.TABLE.h;
+  const tw = desk().w, th = desk().h;
   // desk edge and shadow
   ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 24 * s.dpr; ctx.shadowOffsetY = 8 * s.dpr;
   ctx.fillStyle = '#6f4421'; rr(ctx, -tw / 2 - 0.14, -th / 2 - 0.14, tw + 0.28, th + 0.28, 0.2); ctx.fill(); ctx.restore();
@@ -270,7 +280,8 @@ function drawDesk() {
     const label = PF.nameOf(m, pen.id) + (pen.id === S.me && !isLocal() ? ' (you)' : '');
     const tw2 = ctx.measureText(label).width + 14;
     const ty = sp[1] - 26;
-    ctx.fillStyle = m.turn === pen.id && m.phase === 'aim' ? 'rgba(255,210,63,.95)' : 'rgba(20,18,30,.72)';
+    const tt = m.teamScore ? PF.teamOf(m, pen.id) : null;
+    ctx.fillStyle = m.turn === pen.id && m.phase === 'aim' ? 'rgba(255,210,63,.95)' : tt !== null ? PF.TEAMS[tt].color : 'rgba(20,18,30,.72)';
     rr(ctx, sp[0] - tw2 / 2, ty - 10, tw2, 20, 10); ctx.fill();
     ctx.fillStyle = m.turn === pen.id && m.phase === 'aim' ? '#1d1a10' : '#fff';
     ctx.fillText(label, sp[0], ty + 0.5);
@@ -292,26 +303,42 @@ function drawAim(ctx, pose, aim) {
   const p = Math.min(1, Math.hypot(aim.dx, aim.dy));
   if (p < 0.02) return;
   const ux = aim.dx / p, uy = aim.dy / p;
-  const len = 0.45 + p * 2.6;
+  const J = PF.impulseForPull(p);
+  const ghost = PF.predict(pose, { lx: aim.lx, ix: ux * J, iy: uy * J });
+  const T = desk(); const offDesk = !PF.onTable(ghost.x, ghost.y, T);
   const col = 'hsl(' + Math.round(130 - 130 * p) + ' 90% 52%)';
-  if (aim.mine && drag.cur) {
+  // rubber band back to the finger
+  if (aim.mine && drag && drag.cur) {
     ctx.save(); ctx.setLineDash([0.08, 0.08]); ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 0.03;
     ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(drag.cur[0], drag.cur[1]); ctx.stroke(); ctx.restore();
     ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.beginPath(); ctx.arc(drag.cur[0], drag.cur[1], 0.09, 0, Math.PI * 2); ctx.fill();
   }
-  ctx.save();
-  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 0.09; ctx.lineCap = 'round';
-  ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = 6;
+  // path of the pen's middle to where it will stop
+  ctx.save(); ctx.setLineDash([0.05, 0.11]); ctx.lineCap = 'round';
+  ctx.strokeStyle = offDesk ? 'rgba(255,80,60,.9)' : 'rgba(255,255,255,.75)'; ctx.lineWidth = 0.045;
+  ctx.beginPath(); ctx.moveTo(pose.x, pose.y); ctx.lineTo(ghost.x, ghost.y); ctx.stroke(); ctx.restore();
+  // landing ghost
+  ctx.save(); ctx.translate(ghost.x, ghost.y); ctx.rotate(ghost.a);
+  const m = match(); const me = m && m.players.find(function (q) { return q.id === m.turn; });
+  drawPen(ctx, PF.skinById(me ? me.skin : 'blue'), { alpha: offDesk ? 0.25 : 0.35, noShadow: true });
+  ctx.setLineDash([0.07, 0.07]); ctx.strokeStyle = offDesk ? 'rgba(255,80,60,.95)' : 'rgba(255,255,255,.9)'; ctx.lineWidth = 0.035;
+  rr(ctx, -PF.PEN.len / 2 - 0.03, -PF.PEN.wid / 2 - 0.03, PF.PEN.len + 0.06, PF.PEN.wid + 0.06, 0.1); ctx.stroke();
+  ctx.restore();
+  // short direction arrow from the grab point
+  const len = 0.35 + p * 0.9;
+  ctx.save(); ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 0.08; ctx.lineCap = 'round'; ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = 6;
   const ex = gx + ux * len, ey = gy + uy * len;
-  ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(ex - ux * 0.18, ey - uy * 0.18); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(ex - ux * 0.32 - uy * 0.17, ey - uy * 0.32 + ux * 0.17); ctx.lineTo(ex - ux * 0.32 + uy * 0.17, ey - uy * 0.32 - ux * 0.17); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(ex - ux * 0.16, ey - uy * 0.16); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(ex - ux * 0.28 - uy * 0.15, ey - uy * 0.28 + ux * 0.15); ctx.lineTo(ex - ux * 0.28 + uy * 0.15, ey - uy * 0.28 - ux * 0.15); ctx.closePath(); ctx.fill();
   ctx.beginPath(); ctx.arc(gx, gy, 0.07, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
   ctx.restore();
+  // power label next to the ghost
   ctx.save();
-  ctx.font = '800 ' + (0.34) + 'px "Nunito", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.lineWidth = 0.06; ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.fillStyle = '#fff';
-  const tx = ex + ux * 0.35, ty = ey + uy * 0.35;
-  ctx.strokeText(Math.round(p * 100) + '%', tx, ty); ctx.fillText(Math.round(p * 100) + '%', tx, ty);
+  ctx.font = '800 0.36px "Nunito", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineWidth = 0.07; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.fillStyle = offDesk ? '#ffb3a8' : '#fff';
+  const label = Math.round(p * 100) + '%' + (offDesk ? ' · off the desk!' : '');
+  const lx2 = Math.max(-T.w / 2 + 1.2, Math.min(T.w / 2 - 1.2, ghost.x)), ly2 = Math.max(-T.h / 2 + 0.4, Math.min(T.h / 2 - 0.4, ghost.y - 0.45));
+  ctx.strokeText(label, lx2, ly2); ctx.fillText(label, lx2, ly2);
   ctx.restore();
 }
 
@@ -358,9 +385,9 @@ function onUp(e) {
   const d = drag; drag = null;
   const pw = Math.hypot(d.vx, d.vy);
   if (!canShoot() || pw < 0.04) { Net.aim(null); return; }
-  // The meter shows how far the pen will slide. Sliding distance grows with speed squared, so the flick strength is the square root of the pull.
-  const k = Math.sqrt(pw) / pw;
-  Net.shoot({ lx: d.lx, ix: d.vx * k * PF.MAX_IMPULSE, iy: d.vy * k * PF.MAX_IMPULSE });
+  // The meter is the share of the full sliding distance; the landing ghost shows exactly where that is.
+  const J = PF.impulseForPull(pw) / pw;
+  Net.shoot({ lx: d.lx, ix: d.vx * J, iy: d.vy * J });
   buzz(15);
 }
 function onCancel() { if (drag) { drag = null; Net.aim(null); } }
@@ -450,30 +477,33 @@ function homeScreen() {
   nodes.push(howCard());
   return nodes;
 }
-const LOCAL = { n: 2, names: ['', '', '', '', ''] };
+const LOCAL = { n: 2, names: ['', '', '', '', ''], teams: false };
 function localCard() {
   const rows = [];
   for (let i = 0; i < LOCAL.n; i++) {
     const sk = PF.SKINS[i];
     rows.push(h('div', { class: 'lrow' }, penPreview(sk.id, 70, 18),
-      h('input', { id: 'lname' + i, type: 'text', maxlength: '14', autocomplete: 'off', placeholder: i === 0 && S.name ? S.name : 'Player ' + (i + 1), 'aria-label': 'Player ' + (i + 1) + ' name', value: LOCAL.names[i], oninput: function (e) { LOCAL.names[i] = e.target.value; } })));
+      h('input', { id: 'lname' + i, type: 'text', maxlength: '14', autocomplete: 'off', placeholder: i === 0 && S.name ? S.name : 'Player ' + (i + 1), 'aria-label': 'Player ' + (i + 1) + ' name', value: LOCAL.names[i], oninput: function (e) { LOCAL.names[i] = e.target.value; } }),
+      LOCAL.teams && LOCAL.n >= 3 ? teamBadge(i % 2) : null));
   }
   return h('details', { class: 'card', id: 'localD' }, h('summary', { class: 'sumh', text: 'Play on one device' }),
     h('p', { class: 'dim', text: 'Pass one phone around, or play side by side on a laptop.' }),
     seg('Players', 'localN', [[2, '2'], [3, '3'], [4, '4'], [5, '5']], LOCAL.n, function (v) { LOCAL.n = v; render(); }),
+    LOCAL.n >= 3 ? seg('Mode', 'localMode', [[false, 'Free-for-all'], [true, 'Teams']], LOCAL.teams, function (v) { LOCAL.teams = v; render(); }) : null,
     h('div', { class: 'lrows' }, rows),
     btn('Start', function () {
       const players = [];
-      for (let i = 0; i < LOCAL.n; i++) players.push({ name: cleanName(LOCAL.names[i]) || (i === 0 && cleanName(S.name)) || 'Player ' + (i + 1), skin: PF.SKINS[i].id });
-      localBegin(players, { target: 3, turnSecs: 0 });
+      const teams = LOCAL.teams && LOCAL.n >= 3;
+      for (let i = 0; i < LOCAL.n; i++) players.push({ name: cleanName(LOCAL.names[i]) || (i === 0 && cleanName(S.name)) || 'Player ' + (i + 1), skin: PF.SKINS[i].id, team: teams ? i % 2 : undefined });
+      localBegin(players, { target: 3, turnSecs: 0, teams: teams });
     }, { kind: 'primary', id: 'localStart' }));
 }
 function howCard() {
   return h('details', { class: 'card how', id: 'howD' }, h('summary', { class: 'sumh', text: 'How to play' }),
     h('ol', { class: 'howlist' },
-      h('li', {}, h('strong', { text: 'Your turn: ' }), 'press on your glowing pen, pull back like a slingshot, and let go. The further you pull, the harder the flick.'),
+      h('li', {}, h('strong', { text: 'Your turn: ' }), 'press on your glowing pen, pull back like a slingshot, and let go. The ghost pen shows where yours will stop if it hits nothing; the further you pull, the further it goes.'),
       h('li', {}, h('strong', { text: 'Where you grab matters: ' }), 'grab near the middle to shoot straight; grab near an end to make the pen spin as it flies.'),
-      h('li', {}, h('strong', { text: 'Knock pens off the desk. ' }), 'A pen is out once its middle goes over the edge. Careful: flick too hard and yours goes off too.'),
+      h('li', {}, h('strong', { text: 'Knock pens off the desk. ' }), 'A pen is out once its middle goes over the edge. Push rivals towards the edges, but if your ghost turns red, you are about to flick yourself off.'),
       h('li', {}, h('strong', { text: 'Last pen on the desk ' }), 'wins the round. First to the target number of rounds wins the match.')));
 }
 
@@ -503,9 +533,12 @@ function roomCard() {
 function lobbyScreen() {
   const d = st(), roster = d.roster, host = S.isHost, n = roster.length;
   const nodes = [roomCard()];
-  const seats = roster.map(function (r) {
-    return h('div', { class: 'seat' + (r.on ? '' : ' off'), 'data-id': r.id }, penPreview(r.skin, 84, 20),
+  const teams = !!d.cfg.teams;
+  const order = teams ? roster.slice().sort(function (a, b) { return (a.team || 0) - (b.team || 0); }) : roster;
+  const seats = order.map(function (r) {
+    return h('div', { class: 'seat' + (r.on ? '' : ' off') + (teams ? ' t' + r.team : ''), 'data-id': r.id }, penPreview(r.skin, 84, 20),
       h('span', { class: 'nm', text: r.name }), r.id === S.me ? h('em', { class: 'tag', text: 'you' }) : null, r.id === d.hostId ? h('em', { class: 'tag', text: 'host' }) : null,
+      teams && (r.team === 0 || r.team === 1) ? teamBadge(r.team, host ? function () { hostSetTeam(r.id, 1 - r.team); } : null) : null,
       !r.on ? h('em', { class: 'tag warnt', text: 'offline' }) : null,
       host && r.id !== S.me ? h('button', { type: 'button', class: 'xbtn', 'aria-label': 'Remove ' + r.name, 'data-remove': r.id, onclick: function () { hostRemove(r.id); } }, icon('x', 14)) : null);
   });
@@ -522,13 +555,15 @@ function lobbyScreen() {
   nodes.push(sc);
   if (host) {
     nodes.push(card(h('h3', { text: 'Match rules' }),
+      seg('Mode', 'cfgMode', [[false, 'Free-for-all'], [true, 'Teams']], teams, function (v) { hostSetCfg({ teams: v }); }),
+      teams ? h('p', { class: 'hint', id: 'teamHint', text: n < 3 ? 'Teams need at least 3 players.' : 'Tap a team badge to move that player. Turns alternate between teams; a team wins the round when no opponent pen is left.' }) : null,
       seg('First to win', 'cfgTarget', [[1, '1 round'], [2, '2'], [3, '3'], [5, '5']], d.cfg.target, function (v) { hostSetCfg({ target: v }); }),
       seg('Turn timer', 'cfgTimer', [[0, 'Off'], [20, '20 s'], [30, '30 s'], [45, '45 s']], d.cfg.turnSecs, function (v) { hostSetCfg({ turnSecs: v }); }),
-      btn(n < 2 ? 'Need one more player' : 'Start the fight', function () { hostStart(); }, { kind: 'primary big', id: 'startBtn', disabled: n < 2 }),
+      btn(n < 2 ? 'Need one more player' : teams && n < 3 ? 'Teams need 3 players' : 'Start the fight', function () { hostStart(); }, { kind: 'primary big', id: 'startBtn', disabled: n < 2 || (teams && n < 3) }),
       h('p', { class: 'hint', text: 'Your phone runs the game. Keep this page open and your screen on while you play.' }),
       confirmBtn('close', 'Close room', 'Confirm: close room for everyone', function () { Net.leave(); })));
   } else {
-    nodes.push(card(h('p', { class: 'dim', id: 'waitHost', text: (S.me ? 'You’re in. ' : '') + 'First to ' + d.cfg.target + ' round' + (d.cfg.target > 1 ? 's' : '') + ' wins' + (d.cfg.turnSecs ? ', ' + d.cfg.turnSecs + ' seconds per turn' : '') + '. ' + nameOf(d.hostId) + ' starts the match.' }),
+    nodes.push(card(h('p', { class: 'dim', id: 'waitHost', text: (S.me ? 'You’re in. ' : '') + (teams ? 'Team match. ' : '') + 'First to ' + d.cfg.target + ' round' + (d.cfg.target > 1 ? 's' : '') + ' wins' + (d.cfg.turnSecs ? ', ' + d.cfg.turnSecs + ' seconds per turn' : '') + '. ' + nameOf(d.hostId) + ' starts the match.' }),
       confirmBtn('leave', S.me ? 'Leave the desk' : 'Leave room', 'Confirm: leave', function () { Net.leave(); })));
   }
   nodes.push(howCard());
@@ -536,28 +571,40 @@ function lobbyScreen() {
 }
 
 /* ---------- game ---------- */
+function pipsFor(score, target) { const a = []; for (let i = 0; i < target; i++) a.push(h('span', { class: 'pip' + (i < score ? ' on' : '') })); return h('span', { class: 'pips', 'aria-label': score + ' of ' + target + ' rounds' }, a); }
 function hud() {
-  const m = match();
-  const chips = m.players.map(function (p) {
+  const m = match(), teams = !!m.teamScore;
+  const list = teams ? m.players.slice().sort(function (a, b) { return a.team - b.team; }) : m.players;
+  const chips = list.map(function (p) {
     const pen = PF.penOf(m, p.id), r = rosterEntry(p.id);
     const out = pen && pen.out, active = m.turn === p.id && (m.phase === 'aim' || m.phase === 'roll');
-    const pips = [];
-    for (let i = 0; i < m.cfg.target; i++) pips.push(h('span', { class: 'pip' + (i < p.score ? ' on' : '') }));
-    return h('div', { class: 'chip' + (active ? ' active' : '') + (out ? ' out' : '') + (r && !r.on && !isLocal() ? ' offline' : ''), 'data-id': p.id },
+    return h('div', { class: 'chip' + (active ? ' active' : '') + (out ? ' out' : '') + (r && !r.on && !isLocal() ? ' offline' : '') + (teams ? ' t' + p.team : ''), 'data-id': p.id },
       h('span', { class: 'swatch', style: 'background:' + PF.skinById(p.skin).body }),
       h('span', { class: 'cn', text: p.name + (p.id === S.me && !isLocal() ? ' (you)' : '') }),
-      h('span', { class: 'pips', 'aria-label': p.score + ' of ' + m.cfg.target + ' rounds' }, pips));
+      teams ? null : pipsFor(p.score, m.cfg.target));
   });
-  return h('div', { class: 'hud', id: 'hud' }, chips);
+  if (!teams) return h('div', { class: 'hud', id: 'hud' }, chips);
+  const myTeam = S.me ? PF.teamOf(m, S.me) : null;
+  const side = function (t) { return h('span', { class: 'tside t' + t }, h('span', { class: 'tname', text: PF.TEAMS[t].name.replace(' team', '') + (myTeam === t && !isLocal() ? ' (you)' : '') }), h('span', { class: 'tscore', id: 'tscore' + t, text: String(m.teamScore[t]) })); };
+  return h('div', { class: 'hudwrap' },
+    h('div', { class: 'teambar', id: 'teambar', 'aria-label': 'Score: blue ' + m.teamScore[0] + ', red ' + m.teamScore[1] + ', first to ' + m.cfg.target },
+      side(0), h('span', { class: 'tvs', text: 'first to ' + m.cfg.target }), side(1)),
+    h('div', { class: 'hud', id: 'hud' }, chips));
 }
+function teamName(t) { return PF.TEAMS[t].name; }
 function statusText() {
   const m = match();
   if (m.phase === 'aim') {
-    if (shooterIsMe()) return (isLocal() ? nameOf(m.turn) + ', your flick! ' : 'Your flick! ') + 'Press your glowing pen, pull back, let go.';
-    return nameOf(m.turn) + ' is lining up a shot…';
+    const tl = m.teamScore ? ' (' + teamName(PF.teamOf(m, m.turn)).replace(' team', '') + ')' : '';
+    if (shooterIsMe()) return (isLocal() ? nameOf(m.turn) + tl + ', your flick! ' : 'Your flick! ') + 'Press your glowing pen, pull back, let go.';
+    return nameOf(m.turn) + tl + ' is lining up a shot…';
   }
   if (m.phase === 'roll') return m.lastShot ? nameOf(m.lastShot.by) + ' flicked at ' + Math.round(m.lastShot.power * 100) + '% power!' : 'Flying…';
-  if (m.phase === 'roundover') return m.roundWinner ? nameOf(m.roundWinner) + ' takes round ' + m.round + '!' : 'Draw! Everyone fell off.';
+  if (m.phase === 'roundover') {
+    if (m.teamScore) return m.roundTeam !== null ? teamName(m.roundTeam) + ' takes round ' + m.round + '!' : 'Draw! Everyone fell off.';
+    return m.roundWinner ? nameOf(m.roundWinner) + ' takes round ' + m.round + '!' : 'Draw! Everyone fell off.';
+  }
+  if (m.teamScore) return m.winnerTeam !== null ? teamName(m.winnerTeam) + ' wins the match!' : '';
   return m.winner ? nameOf(m.winner) + ' wins the match!' : '';
 }
 function tickHud() {
@@ -578,12 +625,14 @@ function stageOverlay() {
   ov.className = 'stage-ov';
   if (m.phase === 'roundover') {
     ov.classList.add('show');
-    const w = m.roundWinner;
-    add(ov, h('div', { class: 'ovcard', id: 'roundCard' },
-      w ? penPreview(PF.penOf(m, w) ? m.players.find(function (p) { return p.id === w; }).skin : 'blue', 150, 36) : null,
+    const w = m.roundWinner, tw = m.teamScore ? m.roundTeam : null;
+    const won = m.teamScore ? tw !== null : !!w;
+    add(ov, h('div', { class: 'ovcard' + (tw !== null ? ' t' + tw : ''), id: 'roundCard' },
+      w ? penPreview(m.players.find(function (p) { return p.id === w; }).skin, 150, 36) : null,
+      tw !== null ? h('span', { class: 'bigteam t' + tw, text: teamName(tw) }) : null,
       h('p', { class: 'ov-k', text: 'Round ' + m.round }),
-      h('h2', { class: 'ov-t', id: 'roundTitle', text: w ? nameOf(w) + ' wins it!' : 'Draw!' }),
-      h('p', { class: 'ov-s', text: w ? 'Last pen on the desk.' : 'Every pen fell. Nobody scores.' }),
+      h('h2', { class: 'ov-t', id: 'roundTitle', text: !won ? 'Draw!' : tw !== null ? teamName(tw).replace(' team', '') + ' wins it!' : nameOf(w) + ' wins it!' }),
+      h('p', { class: 'ov-s', text: !won ? 'Every pen fell. Nobody scores.' : tw !== null ? 'No opponent pen left on the desk.' : 'Last pen on the desk.' }),
       scoreList(m), h('p', { class: 'hint', id: 'nextIn', text: 'Next round soon…' })));
   } else if (m.phase === 'over') {
     ov.classList.add('show');
@@ -596,13 +645,22 @@ function stageOverlay() {
       buttons.push(h('p', { class: 'hint', text: 'Waiting for ' + nameOf(st().hostId) + ' to start a rematch…' }));
       buttons.push(confirmBtn('leave2', 'Leave room', 'Confirm: leave', function () { Net.leave(); }));
     }
-    add(ov, h('div', { class: 'ovcard win', id: 'overCard' }, icon('trophy', 44),
+    const twin = m.teamScore ? m.winnerTeam : null;
+    const mates = twin !== null ? m.players.filter(function (p) { return p.team === twin; }).map(function (p) { return p.name; }).join(', ') : '';
+    add(ov, h('div', { class: 'ovcard win' + (twin !== null ? ' t' + twin : ''), id: 'overCard' }, icon('trophy', 44),
       h('p', { class: 'ov-k', text: 'Match over' }),
-      h('h2', { class: 'ov-t', id: 'winner', text: nameOf(w) + (w === S.me && !isLocal() ? ' (you!)' : '') + ' is the desk champion' }),
+      h('h2', { class: 'ov-t', id: 'winner', text: twin !== null ? teamName(twin) + ' wins the match!' : nameOf(w) + (w === S.me && !isLocal() ? ' (you!)' : '') + ' is the desk champion' }),
+      twin !== null ? h('p', { class: 'ov-s', text: 'Champions: ' + mates }) : null,
       scoreList(m), h('div', { class: 'ovbtns' }, buttons)));
   }
 }
 function scoreList(m) {
+  if (m.teamScore) {
+    return h('ol', { class: 'scores' }, [0, 1].sort(function (a, b) { return m.teamScore[b] - m.teamScore[a]; }).map(function (t) {
+      return h('li', { class: 't' + t }, h('span', { class: 'swatch', style: 'background:' + PF.TEAMS[t].color }),
+        h('span', { class: 'cn', text: teamName(t) + ': ' + m.players.filter(function (p) { return p.team === t; }).map(function (p) { return p.name; }).join(', ') }), pipsFor(m.teamScore[t], m.cfg.target));
+    }));
+  }
   return h('ol', { class: 'scores' }, PF.standings(m).map(function (p) {
     const pips = []; for (let i = 0; i < m.cfg.target; i++) pips.push(h('span', { class: 'pip' + (i < p.score ? ' on' : '') }));
     return h('li', {}, h('span', { class: 'swatch', style: 'background:' + PF.skinById(p.skin).body }), h('span', { class: 'cn', text: p.name }), h('span', { class: 'pips' }, pips));

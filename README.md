@@ -73,11 +73,14 @@ Inspired by [meet244/Mafia](https://github.com/meet244/Mafia).
 
 The last-bench classic, online for 2 to 5 friends. Everyone has a pen on the same wooden desk. On your turn you flick your pen, and the aim is to knock everyone else's pen off the desk without sending your own over the edge. The last pen on the desk wins the round, and the first player to reach the target number of rounds wins the match.
 
+**Teams:** with 3 or more players, the host can switch to Blue vs Red (2v1, 2v2 or 3v2). Teammates sit apart, turns alternate between teams, and a team wins the round when no opponent pen is left on the desk. Knocking off your own teammate counts against you.
+
 - **Rooms:** create a room and share the 4-letter code, the invite link or the QR code, just like Mafia. Everyone plays on their own phone.
-- **Controls:** press on your glowing pen, pull back like a slingshot, and let go. Pulling further gives more power. Grab near the middle to shoot straight, or near an end to make the pen spin.
+- **Controls:** press on your glowing pen, pull back like a slingshot, and let go. A faint ghost pen shows exactly where yours will stop if it hits nothing, and it turns red if you'd fly off the desk. Grab near the middle to shoot straight, or near an end to make the pen spin.
+- **Physics:** a full flick slides about 4 pen lengths and stops dead in about a second, because pens use sliding friction like a real desk. The desk grows with the number of players: 6×9 for a duel, 7×10.5 for 3, and 8×12 for 4–5. Pens near an edge are in danger, while the middle of the big desk is safe.
 - **What everyone sees:** the shooter's aim arrow appears live on every screen, and the shot plays out on all phones at once. You can send reactions (😂 😱 🔥 👏 😤 💀) during play.
-- **Host options:** first to 1, 2, 3 or 5 rounds, and a turn timer (off, 20, 30 or 45 seconds). Offline players' turns are skipped automatically, and the host can skip a turn or remove someone who left.
-- **One device:** 2 to 5 players can pass one phone around or share a laptop.
+- **Host options:** free-for-all or teams, first to 1, 2, 3 or 5 rounds, and a turn timer (off, 20, 30 or 45 seconds). Offline players' turns are skipped automatically, and the host can skip a turn or remove someone who left.
+- **One device:** 2 to 5 players can pass one phone around or share a laptop, with teams available for 3 or more.
 
 ### How it works
 

@@ -358,7 +358,9 @@ function onUp(e) {
   const d = drag; drag = null;
   const pw = Math.hypot(d.vx, d.vy);
   if (!canShoot() || pw < 0.04) { Net.aim(null); return; }
-  Net.shoot({ lx: d.lx, ix: d.vx * PF.MAX_IMPULSE, iy: d.vy * PF.MAX_IMPULSE });
+  // The meter shows how far the pen will slide. Sliding distance grows with speed squared, so the flick strength is the square root of the pull.
+  const k = Math.sqrt(pw) / pw;
+  Net.shoot({ lx: d.lx, ix: d.vx * k * PF.MAX_IMPULSE, iy: d.vy * k * PF.MAX_IMPULSE });
   buzz(15);
 }
 function onCancel() { if (drag) { drag = null; Net.aim(null); } }

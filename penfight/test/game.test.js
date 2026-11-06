@@ -66,7 +66,7 @@ test('shot validation', () => {
 test('a soft shot moves the pen and passes the turn', () => {
   const m = PF.newMatch({ players: P(3), rng: seeded(3) });
   const before = { ...PF.penOf(m, 'p0') };
-  const r = PF.simulateShot(m, 'p0', { lx: 0, ix: 0.25, iy: 0.1, turnNo: m.turnNo });
+  const r = PF.simulateShot(m, 'p0', { lx: 0, ix: 0.8, iy: 0.3, turnNo: m.turnNo });
   assert.ok(r && !r.roundOver);
   const after = PF.penOf(m, 'p0');
   assert.ok(Math.hypot(after.x - before.x, after.y - before.y) > 0.2, 'pen moved');

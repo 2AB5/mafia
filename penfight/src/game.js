@@ -5,7 +5,12 @@ const PF = (function () {
 
   const TABLE = { w: 6, h: 9 };                 // desk, centred on 0,0 (world units ~ 5 cm)
   const PEN = { len: 1.6, wid: 0.17 };
-  const MAX_IMPULSE = 3.0;
+  function PEN_LEN_FOR_FRICTION() { return PEN.len; }
+  const MAX_IMPULSE = 3.5;
+  // Desk friction. Sliding (Coulomb) friction removes a fixed amount of speed every second, so a pen
+  // slows steadily and then stops dead, the way it does on a real desk (plain damping makes it creep on ice).
+  const SLIDE_DECEL = 6.0;                    // units/s^2
+  const SPIN_DECEL = 3 * SLIDE_DECEL * 3 / PEN_LEN_FOR_FRICTION(); // rad/s^2: a spinning pen grips the desk along its whole length, so spin dies quickly
   const MIN_PLAYERS = 2, MAX_PLAYERS = 5;
   const DT = 1 / 60;
   const MAX_ROLL_SECS = 12;
@@ -186,8 +191,8 @@ const PF = (function () {
     const self = this;
     m.pens.forEach(function (pen, i) {
       if (pen.out) { self.bodies.push(null); return; }
-      const b = self.world.createBody({ type: 'dynamic', position: pl.Vec2(pen.x, pen.y), angle: pen.a, linearDamping: 1.1, angularDamping: 2.2, bullet: true });
-      b.createFixture(pl.Box(PEN.len / 2, PEN.wid / 2), { density: 1, friction: 0.25, restitution: 0.5 });
+      const b = self.world.createBody({ type: 'dynamic', position: pl.Vec2(pen.x, pen.y), angle: pen.a, linearDamping: 0.12, angularDamping: 0.2, bullet: true });
+      b.createFixture(pl.Box(PEN.len / 2, PEN.wid / 2), { density: 1, friction: 0.25, restitution: 0.6 });
       b.setUserData(i);
       self.bodies.push(b);
     });
@@ -204,6 +209,16 @@ const PF = (function () {
     b.applyLinearImpulse(pl.Vec2(shot.ix, shot.iy), b.getWorldPoint(pl.Vec2(shot.lx, 0)), true);
   };
   Sim.prototype.step = function () {
+    for (let i = 0; i < this.bodies.length; i++) {
+      const b = this.bodies[i];
+      if (!b) continue;
+      const v = b.getLinearVelocity(), sp = Math.hypot(v.x, v.y), dv = SLIDE_DECEL * DT;
+      if (sp <= dv) { if (sp > 0) b.setLinearVelocity(pl.Vec2(0, 0)); }
+      else b.setLinearVelocity(pl.Vec2(v.x * (1 - dv / sp), v.y * (1 - dv / sp)));
+      const w = b.getAngularVelocity(), dw = SPIN_DECEL * DT;
+      if (Math.abs(w) <= dw) { if (w !== 0) b.setAngularVelocity(0); }
+      else b.setAngularVelocity(w - Math.sign(w) * dw);
+    }
     this.world.step(DT, 8, 3);
     this.t += DT;
     const fell = [];

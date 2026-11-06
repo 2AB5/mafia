@@ -337,7 +337,8 @@ function drawAim(ctx, pose, aim) {
   ctx.font = '800 0.36px "Nunito", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.lineWidth = 0.07; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.fillStyle = offDesk ? '#ffb3a8' : '#fff';
   const label = Math.round(p * 100) + '%' + (offDesk ? ' · off the desk!' : '');
-  const lx2 = Math.max(-T.w / 2 + 1.2, Math.min(T.w / 2 - 1.2, ghost.x)), ly2 = Math.max(-T.h / 2 + 0.4, Math.min(T.h / 2 - 0.4, ghost.y - 0.45));
+  const half = offDesk ? 2.0 : 0.6;
+  const lx2 = Math.max(-T.w / 2 + half, Math.min(T.w / 2 - half, ghost.x)), ly2 = Math.max(-T.h / 2 + 0.4, Math.min(T.h / 2 - 0.4, ghost.y - 0.45));
   ctx.strokeText(label, lx2, ly2); ctx.fillText(label, lx2, ly2);
   ctx.restore();
 }

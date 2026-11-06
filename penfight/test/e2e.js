@@ -178,12 +178,13 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
       if (m.phase === 'over') break;
       if (m.phase !== 'aim') { await sleep(60); continue; }
       const alive = m.pens.filter(p => !p.out && p.id !== m.turn);
-      const tp = alive[0], mp = m.pens.find(p => p.id === m.turn);
+      const tp = alive[Math.floor(Math.random() * alive.length)], mp = m.pens.find(p => p.id === m.turn);
       await flick(pg, m.turn, tp.id, Math.random() < 0.5 ? 1 : Math.min(1, Math.hypot(tp.x - mp.x, tp.y - mp.y) / 7 + 0.45), (Math.random() - 0.5) * 0.4, shots === 0 ? '08-local-wide.png' : null);
       await waitFor(() => ev(pg, "window.__pf.H.match.phase !== 'aim' || window.__pf.H.match.turnNo !== " + m.turnNo), 'local shot', 5000).catch(() => {});
       await waitFor(() => ev(pg, "window.__pf.H.match.phase !== 'roll'"), 'local settle', 20000);
       shots++;
     }
+    if (!(await pg.$('#winner'))) { const m = await ev(pg, 'window.__pf.H.match'); console.log('    local not finished: round ' + m.round + ' phase ' + m.phase + ' scores ' + m.players.map(p => p.score) + ' log: ' + m.log.slice(-4).join(' | ')); }
     check(await pg.$('#winner'), 'local match finished');
     console.log('  one-device 3 players: ' + (await pg.textContent('#winner')) + ' after ' + shots + ' shots');
     const ov = await ev(pg, 'document.documentElement.scrollWidth > innerWidth + 1');
@@ -191,11 +192,12 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     await pg.context().close();
   }
   try {
+    if (process.env.LOCAL_ONLY) { await localMatch(); throw 'done'; }
     await onlineMatch(5, { shots: true, reload: true, target: 1 });
     await onlineMatch(2, { target: 1 });
     await onlineMatch(4, { teams: true, target: 2, shots: true });
     await localMatch();
-  } catch (e) { fails++; console.log('  ERROR ' + e.stack); }
+  } catch (e) { if (e !== 'done') { fails++; console.log('  ERROR ' + e.stack); } }
   check(errors.length === 0, 'page errors:\n    ' + errors.slice(0, 10).join('\n    '));
   await browser.close(); web.close(); psrv.close();
   console.log(fails ? fails + ' FAILED' : 'ALL PEN FIGHT E2E PASSED');

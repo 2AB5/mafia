@@ -1,6 +1,6 @@
 # Mafia · Night Table
 
-**Play: https://2ab5.github.io/mafia/**
+**Play: https://2ab5.github.io/mafia/** · Also here: **[Pen Fight](https://2ab5.github.io/mafia/penfight/)** for 2 to 5 players.
 
 A party game of lies for 4 to 8 players. Everyone gets a secret role on their own phone. By night the Mafia strikes; by day the town argues, accuses and votes. No accounts and no installs.
 
@@ -64,3 +64,30 @@ npm run test:e2e     # real WebRTC games across many browser tabs
 To test against your own signalling server, open the page with `?peer=host:port`.
 
 Inspired by [meet244/Mafia](https://github.com/meet244/Mafia).
+
+---
+
+# Pen Fight
+
+**Play: https://2ab5.github.io/mafia/penfight/**
+
+The last-bench classic, online for 2 to 5 friends. Everyone has a pen on the same wooden desk. On your turn you flick your pen, and the aim is to knock everyone else's pen off the desk without sending your own over the edge. The last pen on the desk wins the round, and the first player to reach the target number of rounds wins the match.
+
+- **Rooms:** create a room and share the 4-letter code, the invite link or the QR code, just like Mafia. Everyone plays on their own phone.
+- **Controls:** press on your glowing pen, pull back like a slingshot, and let go. Pulling further gives more power. Grab near the middle to shoot straight, or near an end to make the pen spin.
+- **What everyone sees:** the shooter's aim arrow appears live on every screen, and the shot plays out on all phones at once. You can send reactions (😂 😱 🔥 👏 😤 💀) during play.
+- **Host options:** first to 1, 2, 3 or 5 rounds, and a turn timer (off, 20, 30 or 45 seconds). Offline players' turns are skipped automatically, and the host can skip a turn or remove someone who left.
+- **One device:** 2 to 5 players can pass one phone around or share a laptop.
+
+### How it works
+
+- The host's browser runs the physics with [planck.js](https://piqnt.com/planck.js/) (a Box2D port) and streams the pen positions to every player about 30 times a second.
+- Players only send their flicks: where they grabbed the pen and how hard they pulled.
+- The connections between phones use the same PeerJS rooms as Mafia, and players reconnect automatically if they drop.
+
+| Path | What it holds |
+| --- | --- |
+| `penfight/src/game.js` | Desk physics and match rules, tested in Node |
+| `penfight/src/net.js` | Rooms and the host-run game loop |
+| `penfight/src/ui.js` | Desk renderer, flick controls and screens |
+| `penfight/index.html` | The built page (`node penfight/build.js`) |

@@ -2,15 +2,17 @@
   "name": "mafia",
   "version": "2.0.0",
   "private": true,
-  "description": "Mafia party game for 4-8 players. Create a room, share the code, everyone plays on their own phone.",
+  "description": "Party games to play with friends online: Mafia (4-8 players) and Pen Fight (2-5 players).",
   "scripts": {
-    "build": "node build.js",
-    "test": "node test/engine.test.js",
-    "test:e2e": "node build.js && node test/e2e.js"
+    "build": "node build.js && node penfight/build.js",
+    "test": "node test/engine.test.js && node penfight/test/game.test.js",
+    "test:e2e": "node build.js && node test/e2e.js",
+    "test:penfight:e2e": "node penfight/build.js && node penfight/test/e2e.js"
   },
   "devDependencies": {
     "express": "^4.21.0",
     "peer": "1.0.2",
-    "playwright": "^1.47.0"
+    "playwright": "^1.47.0",
+    "planck": "1.5.0"
   }
 }

@@ -103,6 +103,15 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     await pg.click('#ctlDone');
     await sleep(300); check((await ev(pg, 'window.__bd.H.match.t')) > t2, 'game resumes after Done');
     await pg.evaluate(() => { window.__bd.Input.resetBinds(); });
+    // hold the joystick through a serve: the screen refreshes when the rally starts, but movement must not stop
+    await pg.evaluate(() => { const m = window.__bd.H.match; m.serveSide = m.players.find(p => p.id !== window.__bd.S.me).side; m.nextServer = [0, 0]; window.__bd.BD.startServe(m); });
+    await sleep(300);
+    const zb2 = await pg.$eval('#stickZone', el => { const r = el.getBoundingClientRect(); return { x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 }; });
+    await pg.mouse.move(zb2.x, zb2.y); await pg.mouse.down(); await pg.mouse.move(zb2.x, zb2.y - 60, { steps: 3 });
+    await waitFor(() => ev(pg, "window.__bd.H.match.phase === 'rally'"), 'opponent serves', 8000);
+    await sleep(250);
+    check(await ev(pg, '!!window.__bd.Input.stick && Math.hypot(window.__bd.Input.jx, window.__bd.Input.jy) > 0.5'), 'the joystick stays held through the serve without lifting your thumb');
+    await pg.mouse.up();
     // a hydration break between points: freezes the game, then Resume counts down
     await pg.evaluate(() => { const m = window.__bd.H.match; m.phase = 'point'; m.phaseT = 0; m.paused = null; });
     await sleep(200);
@@ -209,6 +218,7 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
   }
   try {
     if (process.env.CTL_ONLY) { await controls(); throw 'done'; }
+    if (process.env.ONLINE_ONLY) { await online(2, 0, { reload: true }); throw 'done'; }
     if (process.env.QUICK) { await controls(); await online(2, 0, { reload: true, shots: true }); throw 'done'; }
     await controls();
     await online(2, 0, { reload: true, shots: true });

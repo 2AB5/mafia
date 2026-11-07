@@ -4580,6 +4580,7 @@ function banner(m) {
   if (w.length && m.phase === 'rally') return h('div', { class: 'banner hot', id: 'pointBanner' }, h('span', { text: 'Game point for ' + SIDES[w[0]].name + '!' }));
   return null;
 }
+const GAME = { stage: null };
 function gameScreen() {
   const m = match();
   if (m.phase === 'over') return overScreen(m);
@@ -4589,7 +4590,14 @@ function gameScreen() {
   const old = wrap.querySelector('.courtov'); if (old) old.remove();
   wrap.appendChild(ov);
   const nodes = [scoreBar(m)];
-  const stage = h('div', { class: 'stage' + (me ? ' playing' : ''), id: 'stage' }, wrap, me ? Controls.ensure() : null);
+  // the stage (court + joystick) is built once and never moved: moving it would cancel a finger that's still on the joystick
+  if (!GAME.stage) GAME.stage = h('div', { class: 'stage', id: 'stage' });
+  const stage = GAME.stage;
+  stage.className = 'stage' + (me ? ' playing' : '');
+  if (wrap.parentNode !== stage) stage.insertBefore(wrap, stage.firstChild);
+  const ctlEl = Controls.ensure();
+  if (me && ctlEl.parentNode !== stage) stage.appendChild(ctlEl);
+  if (!me && ctlEl.parentNode === stage) stage.removeChild(ctlEl);
   nodes.push(stage);
   const tools = [];
   tools.push(h('div', { class: 'reacts' }, REACTIONS.map(function (e) { return h('button', { type: 'button', class: 'react', 'aria-label': 'React ' + e, onclick: function () { Net.react(e); } }, e); })));
@@ -4696,9 +4704,19 @@ render = function () {
   const m = match();
   document.documentElement.classList.toggle('ingame', S.screen === 'room' && !!m && m.phase !== 'over');
   renderHeader(); renderConn();
-  clear(mainEl);
-  if (S.err) mainEl.appendChild(h('div', { class: 'err', role: 'alert', id: 'errBar' }, h('span', { text: S.err }), h('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Dismiss', onclick: function () { S.err = ''; render(); } }, icon('x', 16))));
-  screen().forEach(function (n) { add(mainEl, n); });
+  const errBar = S.err ? h('div', { class: 'err', role: 'alert', id: 'errBar' }, h('span', { text: S.err }), h('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Dismiss', onclick: function () { S.err = ''; render(); } }, icon('x', 16))) : null;
+  const playing = S.screen === 'room' && m && m.phase !== 'over';
+  if (playing && GAME.stage && GAME.stage.parentNode === mainEl) {
+    // mid-game refresh: swap everything around the stage, but leave the stage itself in place
+    Array.prototype.slice.call(mainEl.childNodes).forEach(function (n) { if (n !== GAME.stage) mainEl.removeChild(n); });
+    const nodes = screen(), at = nodes.indexOf(GAME.stage);
+    if (errBar) mainEl.insertBefore(errBar, GAME.stage);
+    nodes.forEach(function (n, i) { if (n === GAME.stage || !n) return; if (i < at) mainEl.insertBefore(n, GAME.stage); else mainEl.appendChild(n); });
+  } else {
+    clear(mainEl);
+    if (errBar) mainEl.appendChild(errBar);
+    screen().forEach(function (n) { add(mainEl, n); });
+  }
   mainEl.querySelectorAll('details[id]').forEach(function (d) { if (Object.prototype.hasOwnProperty.call(OPEN, d.id)) d.open = OPEN[d.id]; d.addEventListener('toggle', function () { OPEN[d.id] = d.open; }); });
   toastEl.hidden = !S.toast; toastEl.textContent = S.toast;
   restoreFocus(keep); syncWake();

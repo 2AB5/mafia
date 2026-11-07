@@ -19,8 +19,9 @@ const BD = (function () {
   };
   const BOT_NAMES = ['Saina', 'Sindhu', 'Lakshya', 'Srikanth', 'Prannoy', 'Satwik', 'Chirag', 'Gopi'];
 
-  function defaultConfig() { return { target: 10 }; }
-  function normalizeConfig(c) { c = c || {}; return { target: [5, 10, 15, 21].indexOf(c.target) !== -1 ? c.target : 10 }; }
+  function defaultConfig() { return { target: 10, games: 1 }; }
+  function normalizeConfig(c) { c = c || {}; return { target: [2, 3, 5, 10, 15, 21].indexOf(c.target) !== -1 ? c.target : 10, games: [1, 3, 5].indexOf(c.games) !== -1 ? c.games : 1 }; }
+  const GAME_PAUSE = 6;                                             // between games of a best-of-3
   function capFor(target) { return target + 5; }
   function cleanName(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, 14) || 'Player'; }
   const sgn = function (side) { return side === 0 ? 1 : -1; };
@@ -101,6 +102,7 @@ const BD = (function () {
       server: null, serveSide: rng() < 0.5 ? 0 : 1, nextServer: [0, 0],
       shuttle: null, lastHitTeam: null, lastHitBy: null, rallyHits: 0, landed: null,
       rally: 0, longest: 0, lastPoint: null, winner: null, resetNo: 0,
+      gameNo: 1, gamesWon: [0, 0], games: [], lastGame: null,
       stats: {}, events: [], log: []
     };
     m.players.forEach(function (p) { m.stats[p.id] = { hits: 0, smashes: 0, winners: 0, errors: 0, fastest: 0, aces: 0 }; });
@@ -363,9 +365,20 @@ const BD = (function () {
     addLog(m, 'Point ' + (winSide === 0 ? 'Bottom' : 'Top') + ' side (' + why + '). ' + m.score[0] + '–' + m.score[1]);
     const w = m.score[winSide], l = m.score[1 - winSide];
     if ((w >= m.cfg.target && w - l >= 2) || w >= capFor(m.cfg.target)) {
-      m.phase = 'over'; m.winner = winSide; m.phaseT = 0;
-      ev(m, { k: 'over', side: winSide });
-      addLog(m, 'Game over: ' + m.score[0] + '–' + m.score[1]);
+      // a game is won; the match may need more games
+      if (!m.gamesWon) { m.gamesWon = [0, 0]; m.games = []; m.gameNo = 1; }
+      m.gamesWon[winSide]++; m.games.push(m.score.slice());
+      const need = Math.floor((m.cfg.games || 1) / 2) + 1;
+      if (m.gamesWon[winSide] >= need) {
+        m.phase = 'over'; m.winner = winSide; m.phaseT = 0;
+        ev(m, { k: 'over', side: winSide });
+        addLog(m, 'Match over: ' + m.games.map(function (g) { return g[0] + '–' + g[1]; }).join(', '));
+        return;
+      }
+      m.lastGame = { side: winSide, score: m.score.slice(), no: m.gameNo };
+      m.phase = 'interval'; m.phaseT = 0;
+      ev(m, { k: 'game', side: winSide, no: m.gameNo });
+      addLog(m, 'Game ' + m.gameNo + ' to ' + (winSide === 0 ? 'Blue' : 'Red') + ', ' + m.score[0] + '–' + m.score[1]);
       return;
     }
     // the rally winner serves; a team that wins the serve back rotates its server
@@ -375,7 +388,7 @@ const BD = (function () {
   /* hydration break: only between points; the clock stops for everyone until someone resumes (or time's up) */
   function canBreak(m, id) {
     const p = playerOf(m, id);
-    return !!p && !p.left && !m.paused && (m.phase === 'point' || m.phase === 'serve') && (m.breaks[id] || 0) < BREAKS;
+    return !!p && !p.left && !m.paused && (m.phase === 'point' || m.phase === 'serve' || m.phase === 'interval') && (m.breaks[id] || 0) < BREAKS;
   }
   function callBreak(m, id) {
     if (!m.breaks) m.breaks = {};
@@ -407,6 +420,16 @@ const BD = (function () {
     m.t += dt; m.phaseT += dt;
     tire(m, dt);
     if (m.phase === 'point') { if (m.phaseT >= POINT_PAUSE) startServe(m, rng); return; }
+    if (m.phase === 'interval') {
+      if (m.phaseT >= GAME_PAUSE) {
+        // next game: 0–0, the winner of the last game serves, everyone gets a breather
+        m.score = [0, 0]; m.gameNo++;
+        m.serveSide = m.lastGame.side;
+        m.players.forEach(function (p) { p.energy = Math.min(100, p.energy + 40); });
+        startServe(m, rng);
+      }
+      return;
+    }
     if (m.phase === 'serve') {
       const sp = playerOf(m, m.server);
       if (sp) { const s = sgn(sp.side), right = m.score[sp.side] % 2 === 0; m.shuttle.x = sp.x + 0.25 * (right ? 1 : -1) * s; m.shuttle.y = sp.y - s * 0.35; m.shuttle.z = 1.0; }
@@ -580,11 +603,11 @@ const BD = (function () {
     if (r) awards.push({ id: 'wall', icon: '🧱', title: 'The wall', who: r.id, text: r.hits + ' shots returned' });
     r = top(function (x) { return x.aces; }, function (x) { return x.aces >= 1; });
     if (r) awards.push({ id: 'ace', icon: '🚀', title: 'Ace server', who: r.id, text: r.aces + ' serve' + (r.aces === 1 ? '' : 's') + ' they couldn’t return' });
-    return { rows: rows, awards: awards.slice(0, 4), score: m.score.slice(), winner: m.winner, longest: m.longest, rallies: m.rally };
+    return { rows: rows, awards: awards.slice(0, 4), score: m.score.slice(), games: (m.games || []).slice(), gamesWon: (m.gamesWon || [0, 0]).slice(), winner: m.winner, longest: m.longest, rallies: m.rally };
   }
 
   return {
-    C: C, ZONES: ZONES, preview: preview, BREAKS: BREAKS, BREAK_SECS: BREAK_SECS, canBreak: canBreak, callBreak: callBreak, resumeBreak: resumeBreak, G: G, K: K, DT: DT, REACH: REACH, MAX_SPEED: MAX_SPEED, GRACE: GRACE, POINT_PAUSE: POINT_PAUSE, SERVE_WAIT: SERVE_WAIT, SMASH_Z: SMASH_Z, LEVELS: LEVELS, BOT_NAMES: BOT_NAMES, NAMES: NAMES,
+    C: C, ZONES: ZONES, GAME_PAUSE: GAME_PAUSE, preview: preview, BREAKS: BREAKS, BREAK_SECS: BREAK_SECS, canBreak: canBreak, callBreak: callBreak, resumeBreak: resumeBreak, G: G, K: K, DT: DT, REACH: REACH, MAX_SPEED: MAX_SPEED, GRACE: GRACE, POINT_PAUSE: POINT_PAUSE, SERVE_WAIT: SERVE_WAIT, SMASH_Z: SMASH_Z, LEVELS: LEVELS, BOT_NAMES: BOT_NAMES, NAMES: NAMES,
     defaultConfig: defaultConfig, normalizeConfig: normalizeConfig, capFor: capFor, modeFor: modeFor, halfW: halfW, sgn: sgn,
     stepShuttle: stepShuttle, fly: fly, launch: launch, speedFor: speedFor, angleFor: angleFor,
     newMatch: newMatch, playerOf: playerOf, nameOf: nameOf, teamOf: teamOf, solo: solo, startServe: startServe,

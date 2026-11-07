@@ -117,8 +117,14 @@ function roomCard() {
 }
 
 /* ---------- lobby ---------- */
+function modeSwitch(d) {
+  if (!S.isHost) return null;
+  return seg('Mode', 'modePick', [['quick', 'Quick match'], ['tour', 'Tournament']], d.mode || 'quick', function (v) { hostSetMode(v); });
+}
 function lobbyScreen() {
-  const d = st(), host = S.isHost, roster = d.roster;
+  const d = st();
+  if (d.mode === 'tour') return tourLobby(d);
+  const host = S.isHost, roster = d.roster;
   const me = roster.find(function (r) { return r.id === S.me; });
   const c = [0, 0]; roster.forEach(function (r) { c[r.side]++; });
   const col = function (s) {
@@ -147,12 +153,13 @@ function lobbyScreen() {
   if (host && roster.length < 4) sc.appendChild(h('div', { class: 'addbot' }, h('span', { class: 'lbl', text: 'Add a computer player' }),
     h('div', { class: 'row' }, ['easy', 'normal', 'hard'].map(function (lv) { return btn('+ ' + lv[0].toUpperCase() + lv.slice(1), function () { hostAddBot(lv); }, { kind: 'small', id: 'addBot-' + lv }); }))));
   const nodes = [roomCard(), sc];
-  if (host) nodes.push(card(h('h3', { text: 'Game' }),
+  if (host) nodes.push(card(h('h3', { text: 'Game' }), modeSwitch(d),
     seg('Points to win (win by 2)', 'cfgTarget', [[5, '5'], [10, '10'], [15, '15'], [21, '21']], d.cfg.target, function (v) { hostSetCfg({ target: v }); }),
+    seg('Games (sets)', 'cfgGames', [[1, 'Single game'], [3, 'Best of 3'], [5, 'Best of 5']], d.cfg.games || 1, function (v) { hostSetCfg({ games: v }); }),
     btn(why || 'Start the game', function () { hostStart(); }, { kind: 'primary big', id: 'startBtn', disabled: !!why }),
     h('p', { class: 'hint', text: 'Your phone runs the game. Keep this page open while you play.' }),
     confirmBtn('close', 'Close court', 'Confirm: close court for everyone', function () { Net.leave(); })));
-  else nodes.push(card(h('p', { class: 'dim', id: 'waitHost', text: 'First to ' + d.cfg.target + ', win by 2. ' + nameOf(d.hostId) + ' starts the game.' }), confirmBtn('leave', 'Leave', 'Confirm: leave', function () { Net.leave(); })));
+  else nodes.push(card(h('p', { class: 'dim', id: 'waitHost', text: ((d.cfg.games || 1) > 1 ? 'Best of ' + d.cfg.games + ' games, each to ' : 'First to ') + d.cfg.target + ', win by 2. ' + nameOf(d.hostId) + ' starts the game.' }), confirmBtn('leave', 'Leave', 'Confirm: leave', function () { Net.leave(); })));
   nodes.push(howCard(false));
   return nodes;
 }
@@ -161,6 +168,115 @@ function startProblem2(d) {
   if (d.roster.length < 2) return 'Waiting for a second player, or add a computer player.';
   if (!c[0] || !c[1]) return 'Both sides need a player: tap ⇄ to move someone.';
   return '';
+}
+
+/* ---------- tournament ---------- */
+const TSEL = { a: null };
+function tourLobby(d) {
+  const host = S.isHost, roster = d.roster, tc = d.tcfg, me = roster.find(function (r) { return r.id === S.me; });
+  const nm = function (id) { const r = rosterEntry(id); return r ? r.name + (r.bot ? ' 🤖' : '') : '?'; };
+  const n = roster.length, dbl = tc.kind === 'doubles';
+  let why = '';
+  if (dbl) why = n < 4 ? 'Doubles needs at least 4 players.' : n % 2 ? 'Odd number: add a computer player so everyone has a partner.' : '';
+  else why = n < 2 ? 'Waiting for players (at least 2).' : '';
+  const chip = function (id) {
+    const r = rosterEntry(id) || {}, sel = TSEL.a === id;
+    return h('li', { class: 'tpl' + (sel ? ' sel' : '') + (r.on === false ? ' off' : ''), 'data-id': id },
+      host && dbl ? h('button', { type: 'button', class: 'tswap', 'aria-label': 'Swap ' + nm(id), 'data-swap': id, onclick: function () { if (!TSEL.a) TSEL.a = id; else { hostSwapPlayers(TSEL.a, id); TSEL.a = null; } render(); } }, nm(id)) : h('span', { class: 'nm', text: nm(id) }),
+      id === S.me ? h('em', { class: 'tag', text: 'you' }) : null, id === d.hostId ? h('em', { class: 'tag', text: 'host' }) : null,
+      r.bot && host ? h('button', { type: 'button', class: 'tag botb', 'data-bot': id, onclick: function () { hostCycleBot(id); } }, r.bot) : null,
+      host && id !== S.me ? h('button', { type: 'button', class: 'xbtn', 'aria-label': 'Remove ' + nm(id), 'data-remove': id, onclick: function () { hostRemove(id); } }, icon('x', 14)) : null);
+  };
+  let list;
+  if (dbl && d.teams) {
+    list = h('ol', { class: 'tteams', id: 'teamList' }, d.teams.pairs.map(function (pr, i) { return h('li', { class: 'tteam' }, h('span', { class: 'tno', text: 'Team ' + (i + 1) }), h('ul', { class: 'tpls' }, pr.map(chip))); }),
+      d.teams.spare ? h('li', { class: 'tteam spare' }, h('span', { class: 'tno', text: 'Needs a partner' }), h('ul', { class: 'tpls' }, chip(d.teams.spare))) : null);
+  } else list = h('ul', { class: 'tpls', id: 'playerList' }, roster.map(function (r) { return chip(r.id); }));
+  const pc = card(h('div', { class: 'cardhead' }, h('h2', { text: dbl ? 'Teams' : 'Players' }), h('span', { class: 'count', id: 'seatCount', text: n + ' / 16' })),
+    h('p', { class: 'dim', text: why || (dbl ? (n / 2) + ' teams. ' : n + ' players. ') + 'Ready!' }), list,
+    host && dbl ? h('div', { class: 'row' }, btn('Shuffle teams', hostShuffleTeams, { kind: 'small ghost', id: 'shuffleBtn' }), h('span', { class: 'hint', text: TSEL.a ? 'Now tap the player to swap with.' : 'Tap two players to swap them.' })) : null);
+  const vs = viewers();
+  if (vs.length) pc.appendChild(h('p', { class: 'viewline', id: 'viewLine' }, icon('eye', 16), h('span', { text: 'Watching: ' + vs.join(', ') })));
+  if (!me && !host) pc.appendChild(h('div', { class: 'sitbox' }, h('input', { id: 'sitName', type: 'text', maxlength: '14', placeholder: 'Your name', value: S.name, oninput: function (e) { S.name = e.target.value; } }),
+    btn('Enter the tournament', function () { if (!cleanName(S.name)) { setErr('Type your name first.'); return; } Net.sit(S.name); }, { kind: 'primary', id: 'sitBtn', disabled: n >= 16 })));
+  if (me && !host) pc.appendChild(h('div', { class: 'row' }, btn('Just watch instead', function () { Net.watch(); }, { kind: 'ghost small', id: 'justWatch', icon: 'eye' })));
+  if (host && n < 16) pc.appendChild(h('div', { class: 'addbot' }, h('span', { class: 'lbl', text: 'Add a computer player' }),
+    h('div', { class: 'row' }, ['easy', 'normal', 'hard'].map(function (lv) { return btn('+ ' + lv[0].toUpperCase() + lv.slice(1), function () { hostAddBot(lv); }, { kind: 'small', id: 'addBot-' + lv }); }))));
+  const desc = (dbl ? 'Doubles' : 'Singles') + ' · ' + (tc.format === 'league' ? 'league (everyone plays everyone)' : 'knockout') + ' · every match best of 3 games to ' + tc.target + ' · two courts at once';
+  const nodes = [roomCard(), pc];
+  if (host) nodes.push(card(h('h3', { text: 'Tournament' }), modeSwitch(d),
+    seg('Event', 'tKind', [['singles', 'Singles'], ['doubles', 'Doubles']], tc.kind, function (v) { hostSetT({ kind: v }); }),
+    seg('Format', 'tFormat', [['knockout', 'Knockout'], ['league', 'League']], tc.format, function (v) { hostSetT({ format: v }); }),
+    seg('Points per game (win by 2)', 'tTarget', [[5, '5'], [10, '10'], [15, '15'], [21, '21']], tc.target, function (v) { hostSetT({ target: v }); }),
+    h('p', { class: 'hint', text: desc + '. Knockout gives byes when the numbers don’t fill the bracket.' }),
+    btn(why || 'Start the tournament', function () { hostStart(); }, { kind: 'primary big', id: 'startBtn', disabled: !!why }),
+    confirmBtn('close', 'Close court', 'Confirm: close court for everyone', function () { Net.leave(); })));
+  else nodes.push(card(h('p', { class: 'dim', id: 'waitHost', text: 'Tournament: ' + desc + '. ' + nameOf(d.hostId) + ' starts it.' }), confirmBtn('leave', 'Leave', 'Confirm: leave', function () { Net.leave(); })));
+  return nodes;
+}
+function tEntryName(T, id) { const e = id && T.entries.find(function (x) { return x.id === id; }); return e ? e.name : 'TBD'; }
+function myEntry(T) { return T.entries.find(function (e) { return e.members.indexOf(S.me) !== -1; }) || null; }
+function callLeft(c) { return c.callIn ? Math.max(0, Math.ceil((c.callAt - performance.now()) / 1000)) : 0; }
+function courtCard(d, c) {
+  const T = d.tour.t, A = tEntryName(T, c.a), B = tEntryName(T, c.b), host = S.isHost;
+  const box = h('div', { class: 'tcourt' + (c.live ? ' live' : ''), id: 'tcourt' + c.n }, h('div', { class: 'tch' }, h('b', { text: 'Court ' + c.n }), c.round ? h('span', { class: 'dim', text: c.round }) : null));
+  if (!c.fid) { box.appendChild(h('p', { class: 'dim', text: T.done ? 'Done' : 'Free' })); return box; }
+  if (!c.live) { box.appendChild(h('p', { class: 'tnext' }, h('b', { text: A + ' v ' + B }), h('span', { class: 'cd', 'data-cd': c.n, text: ' starts in ' + callLeft(c) + 's' }))); return box; }
+  const L = c.live;
+  box.appendChild(h('div', { class: 'tlive' },
+    h('div', { class: 'tlr s0' }, h('span', { class: 'tn', text: A }), h('span', { class: 'tg', text: String(L.gamesWon[0]) }), h('span', { class: 'tp', text: L.phase === 'over' ? '' : String(L.score[0]) })),
+    h('div', { class: 'tlr s1' }, h('span', { class: 'tn', text: B }), h('span', { class: 'tg', text: String(L.gamesWon[1]) }), h('span', { class: 'tp', text: L.phase === 'over' ? '' : String(L.score[1]) }))));
+  box.appendChild(h('p', { class: 'hint', text: L.phase === 'over' ? 'Finished' : 'Game ' + L.gameNo + ' in progress · games won, then points' }));
+  const row = h('div', { class: 'row' }, L.phase !== 'over' ? btn('Watch', function () { Net.view(c.n); }, { kind: 'small primary', id: 'watch' + c.n, icon: 'eye' }) : null);
+  if (host && L.phase !== 'over') { row.appendChild(confirmBtn('wo' + c.n + 'a', 'Award to ' + A, 'Confirm walkover', function () { hostWalkover(c.fid, c.a); }, 'small')); row.appendChild(confirmBtn('wo' + c.n + 'b', 'Award to ' + B, 'Confirm walkover', function () { hostWalkover(c.fid, c.b); }, 'small')); }
+  box.appendChild(row);
+  return box;
+}
+function fixtureBox(T, f) {
+  const side = function (id, k) { return h('div', { class: 'fxr' + (f.winner && f.winner === id ? ' won' : '') + (myEntry(T) && myEntry(T).id === id ? ' me' : '') }, h('span', { class: 'tn', text: id ? tEntryName(T, id) : (f.bye && k ? 'bye' : 'TBD') }),
+    h('span', { class: 'fxg', text: f.games.map(function (g) { return k ? g[1] : g[0]; }).join(' ') })); };
+  return h('div', { class: 'fx ' + f.status, 'data-fid': f.id }, side(f.a, 0), side(f.b, 1),
+    f.status === 'live' ? h('span', { class: 'fxbadge', text: 'Court ' + f.court }) : f.walkover ? h('span', { class: 'fxbadge', text: 'walkover' }) : null);
+}
+function bracketScreen(d) {
+  const T = d.tour.t, host = S.isHost, mine = myEntry(T);
+  const nodes = [];
+  const fmt = (T.kind === 'doubles' ? 'Doubles' : 'Singles') + ' ' + (T.format === 'league' ? 'league' : 'knockout') + ' · best of 3 to ' + d.tcfg.target;
+  if (T.done) nodes.push(h('section', { class: 'card winner', id: 'champCard' }, icon('trophy', 44), h('p', { class: 'ov-k', text: 'Champion' + (T.kind === 'doubles' ? 's' : '') }),
+    h('h2', { class: 'ov-t', id: 'champion', text: tEntryName(T, T.champion) + (mine && mine.id === T.champion ? ' (you!)' : '') }), h('p', { class: 'hint', text: fmt }),
+    host ? h('div', { class: 'ovbtns' }, btn('Back to lobby', hostToLobby, { kind: 'primary', id: 'lobbyBtn' })) : h('p', { class: 'hint', text: 'Waiting for ' + nameOf(d.hostId) + '…' })));
+  // you're up
+  const up = mine && d.tour.courts.find(function (c) { return c.fid && !c.live && (c.a === mine.id || c.b === mine.id); });
+  if (up) nodes.push(h('div', { class: 'banner mine', id: 'upBanner' }, h('b', { text: 'You’re up on court ' + up.n + '! ' }), h('span', { class: 'cd', 'data-cd': up.n, text: 'Starts in ' + callLeft(up) + 's' })));
+  if (!T.done) nodes.push(card(h('div', { class: 'cardhead' }, h('h2', { text: 'Courts' }), h('span', { class: 'dim', text: fmt })), h('div', { class: 'tcourts' }, d.tour.courts.map(function (c) { return courtCard(d, c); }))));
+  if (T.format === 'league') {
+    const st2 = d.tour.standings || [];
+    nodes.push(card(h('h3', { text: 'Table' }), h('div', { class: 'tablewrap' }, h('table', { class: 'sumtab', id: 'leagueTable' },
+      h('thead', {}, h('tr', {}, h('th', { text: '#' }), h('th', { class: 'pn', text: T.kind === 'doubles' ? 'Team' : 'Player' }), ['P', 'W', 'L', 'Games', 'Pts ±'].map(function (x) { return h('th', { text: x }); }))),
+      h('tbody', {}, st2.map(function (r, i) { return h('tr', { class: mine && mine.id === r.id ? 'me' : '' }, h('td', { text: String(i + 1) }), h('td', { class: 'pn', text: r.name }), h('td', { text: String(r.played) }), h('td', { class: 'b', text: String(r.won) }), h('td', { text: String(r.lost) }), h('td', { text: r.gw + '–' + r.gl }), h('td', { text: (r.pw - r.pl > 0 ? '+' : '') + (r.pw - r.pl) })); }))))));
+    nodes.push(card(h('h3', { text: 'Matches' }), h('div', { class: 'fxlist', id: 'fixtures' }, T.fixtures.map(function (f) { return fixtureBox(T, f); }))));
+  } else {
+    const rounds = []; T.fixtures.forEach(function (f) { (rounds[f.round] = rounds[f.round] || []).push(f); });
+    nodes.push(card(h('h3', { text: 'Bracket' }), h('div', { class: 'bracket', id: 'bracket' }, rounds.map(function (fs) {
+      return h('div', { class: 'bround' }, h('div', { class: 'lbl', text: fs[0].roundName }), fs.filter(function (f) { return !(f.bye && f.round === 0) || true; }).map(function (f) { return fixtureBox(T, f); }));
+    }))));
+  }
+  if (host && !T.done) nodes.push(card(confirmBtn('endT', 'End tournament', 'Confirm: end the tournament', hostEndTour)));
+  if (!host) nodes.push(card(confirmBtn('leave', 'Leave', 'Confirm: leave', function () { Net.leave(); })));
+  return nodes;
+}
+/* the countdowns tick without a full re-render */
+setInterval(function () {
+  const d = S.st; if (!d || !d.tour) return;
+  document.querySelectorAll('[data-cd]').forEach(function (el) { const c = d.tour.courts[Number(el.getAttribute('data-cd')) - 1]; if (c) el.textContent = el.textContent.replace(/\d+s/, callLeft(c) + 's'); });
+}, 500);
+function tourBar(d, m) {
+  if (!d.tour) return null;
+  const playing = m.players.some(function (p) { return p.id === S.me && !p.left; });
+  const other = d.view === 1 ? 2 : 1, oc = d.tour.courts[other - 1];
+  return h('div', { class: 'tourbar', id: 'tourBar' }, h('b', { text: 'Court ' + d.view }), h('span', { class: 'dim', text: (m.round || '') + ' · best of 3' }),
+    !playing || m.phase === 'over' ? btn('Bracket', function () { Net.view(0); }, { kind: 'small ghost', id: 'toBracket' }) : null,
+    !playing && oc && oc.live && oc.live.phase !== 'over' ? btn('Court ' + other, function () { Net.view(other); }, { kind: 'small ghost', id: 'toCourt' + other }) : null);
 }
 
 /* ---------- game ---------- */
@@ -172,7 +288,7 @@ function scoreBar(m) {
   };
   const me = m.players.find(function (p) { return p.id === S.me; });
   return h('div', { class: 'scorebar', id: 'scorebar' }, side(me && me.side === 1 ? 1 : 0),
-    h('div', { class: 'sbmid' }, h('button', { type: 'button', class: 'gearbtn', id: 'gearBtn', 'aria-label': 'Controls and settings', onclick: function () { openCtl(true); } }, icon('gear', 18)), h('span', { text: 'to ' + m.cfg.target })), side(me && me.side === 1 ? 0 : 1));
+    h('div', { class: 'sbmid' }, h('button', { type: 'button', class: 'gearbtn', id: 'gearBtn', 'aria-label': 'Controls and settings', onclick: function () { openCtl(true); } }, icon('gear', 18)), h('span', { text: 'to ' + m.cfg.target }), (m.cfg.games || 1) > 1 ? h('span', { class: 'sbg', id: 'gamesWon', text: 'G' + (m.gameNo || 1) + ' · ' + (m.gamesWon || [0, 0])[me && me.side === 1 ? 1 : 0] + '–' + (m.gamesWon || [0, 0])[me && me.side === 1 ? 0 : 1] }) : null), side(me && me.side === 1 ? 0 : 1));
 }
 function banner(m) {
   const me = m.players.find(function (p) { return p.id === S.me && !p.left; });
@@ -181,6 +297,10 @@ function banner(m) {
     const why = { in: 'Winner!', out: 'Out!', net: 'Into the net!', serve: 'Serve fault!' }[lp.reason] || '';
     const who = m.players.filter(function (p) { return p.side === lp.side; }).map(function (p) { return p.name; }).join(' & ');
     return h('div', { class: 'banner ' + (me ? (won ? 'good' : 'bad') : ''), id: 'pointBanner' }, h('b', { text: why }), h('span', { text: ' Point ' + who + ' · ' + m.score[me && me.side === 1 ? 1 : 0] + '–' + m.score[me && me.side === 1 ? 0 : 1] + (lp.hits > 6 ? ' · ' + lp.hits + '-shot rally' : '') }));
+  }
+  if (m.phase === 'interval' && m.lastGame) {
+    const who = m.players.filter(function (p) { return p.side === m.lastGame.side; }).map(function (p) { return p.name; }).join(' & ');
+    return h('div', { class: 'banner hot', id: 'gameBanner' }, h('b', { text: 'Game ' + m.lastGame.no + ' to ' + who + ' (' + m.lastGame.score.join('–') + '). ' }), h('span', { text: 'Games ' + m.gamesWon.join('–') + '. Next game coming up…' }));
   }
   if (m.phase === 'serve') {
     if (me && m.server === me.id) return h('div', { class: 'banner mine', id: 'serveBanner' }, h('b', { text: 'Your serve. ' }), h('span', { text: 'Clear = high · Drop = short · Smash = flick' }));
@@ -199,7 +319,7 @@ function gameScreen() {
   const ov = h('div', { class: 'courtov' }, banner(m));
   const old = wrap.querySelector('.courtov'); if (old) old.remove();
   wrap.appendChild(ov);
-  const nodes = [scoreBar(m)];
+  const nodes = [tourBar(st(), m), scoreBar(m)];
   // the stage (court + joystick) is built once and never moved: moving it would cancel a finger that's still on the joystick
   if (!GAME.stage) GAME.stage = h('div', { class: 'stage', id: 'stage' });
   const stage = GAME.stage;
@@ -213,14 +333,14 @@ function gameScreen() {
   tools.push(h('div', { class: 'reacts' }, REACTIONS.map(function (e) { return h('button', { type: 'button', class: 'react', 'aria-label': 'React ' + e, onclick: function () { Net.react(e); } }, e); })));
   if (me && touchy()) tools.push(h('p', { class: 'runhint', text: 'Drag on the left side to run' }));
   if (me) tools.push(h('div', { class: 'energy', 'aria-label': 'Your energy' }, h('span', { class: 'elbl', text: 'Energy' }), h('span', { class: 'ebar' }, h('span', { class: 'efill hi', id: 'myEnergy' }))));
-  if (!me) tools.push(h('p', { class: 'watching', id: 'watching', text: '👁 You’re watching. You can join when this game ends.' }));
+  if (!me) tools.push(h('p', { class: 'watching', id: 'watching', text: st().tour ? '👁 Watching court ' + st().view + '.' : '👁 You’re watching. You can join when this game ends.' }));
   const ctl = [h('button', { type: 'button', class: 'btn small ghost', id: 'ctlBtn', 'aria-expanded': OPEN.ctl ? 'true' : 'false', onclick: function () { openCtl(!OPEN.ctl); } }, '⚙ Controls'), h('button', { type: 'button', class: 'btn small ghost', id: 'guideBtn', 'aria-pressed': S.guide ? 'true' : 'false', onclick: function () { S.guide = !S.guide; store('guide', S.guide ? '1' : '0'); render(); } }, 'Landing guide: ' + (S.guide ? 'on' : 'off'))];
   if (me) {
     const used = (m.breaks && m.breaks[S.me]) || 0, left = BD.BREAKS - used;
     const ok = !m.paused && (m.phase === 'point' || m.phase === 'serve') && left > 0;
     ctl.unshift(h('button', { type: 'button', class: 'btn small', id: 'breakBtn', disabled: !ok, title: 'Pause between points', onclick: function () { Net.pause(); } }, '🥤 Break' + (left < BD.BREAKS ? ' (' + left + ' left)' : '')));
   }
-  if (S.isHost && !S.local) ctl.push(confirmBtn('end', 'End game', 'Confirm: end game', hostEndGame, 'small'));
+  if (S.isHost && !S.local && !st().tour) ctl.push(confirmBtn('end', 'End game', 'Confirm: end game', hostEndGame, 'small'));
   if (S.local) ctl.push(confirmBtn('quit', 'Quit practice', 'Confirm: quit', function () { hostClose(); }, 'small'));
   if (!S.isHost) ctl.push(confirmBtn('leave', 'Leave', 'Confirm: leave', function () { Net.leave(); }, 'small'));
   tools.push(h('div', { class: 'row ctl' }, ctl));
@@ -235,7 +355,8 @@ function overScreen(m) {
   const w = m.winner;
   const winners = w === 0 || w === 1 ? m.players.filter(function (p) { return p.side === w; }).map(function (p) { return p.name; }).join(' & ') : '';
   const buttons = [];
-  if (S.isHost) { buttons.push(btn(S.local ? 'Play again' : 'Rematch', hostRematch, { kind: 'primary big', id: 'rematchBtn' })); buttons.push(btn(S.local ? 'Back home' : 'Back to lobby', hostToLobby, { kind: 'ghost', id: 'lobbyBtn' })); }
+  if (st().tour) buttons.push(h('p', { class: 'hint', text: 'Result recorded. The next match on this court is called in a few seconds.' }), btn('Back to bracket', function () { Net.view(0); }, { kind: 'primary', id: 'toBracket2' }));
+  else if (S.isHost) { buttons.push(btn(S.local ? 'Play again' : 'Rematch', hostRematch, { kind: 'primary big', id: 'rematchBtn' })); buttons.push(btn(S.local ? 'Back home' : 'Back to lobby', hostToLobby, { kind: 'ghost', id: 'lobbyBtn' })); }
   else {
     buttons.push(h('p', { class: 'hint', text: 'Waiting for ' + nameOf(st().hostId) + ' to start the next game…' }));
     if (!me && S.st.roster.length < 4) buttons.push(btn('Play next game', function () { Net.sit(cleanName(S.name) || 'Player'); }, { kind: 'primary', id: 'sitNext' }));
@@ -244,7 +365,8 @@ function overScreen(m) {
   const head = h('section', { class: 'card winner' + (w === 0 || w === 1 ? ' s' + w : ''), id: 'overCard' }, icon('trophy', 44),
     h('p', { class: 'ov-k', text: 'Game over' }),
     h('h2', { class: 'ov-t', id: 'winner', text: w === null || w === undefined ? 'Game ended' : winners + (me && me.side === w ? ' (you!)' : '') + ' win' + (winners.indexOf('&') !== -1 ? '' : 's') + '!' }),
-    h('div', { class: 'finalscore' }, [0, 1].map(function (s) { return h('div', { class: 'fs s' + s }, h('span', { class: 'tname', text: SIDES[s].name }), h('span', { class: 'tscore', text: String(m.score[s]) })); })),
+    h('div', { class: 'finalscore' }, [0, 1].map(function (s) { return h('div', { class: 'fs s' + s }, h('span', { class: 'tname', text: SIDES[s].name }), h('span', { class: 'tscore', text: String((m.cfg.games || 1) > 1 ? (m.gamesWon || [0, 0])[s] : m.score[s]) })); })),
+    (m.games || []).length > 1 || m.walkover ? h('p', { class: 'gamescores', id: 'gameScores', text: m.walkover ? 'Walkover' : 'Games: ' + m.games.map(function (g) { return g.join('–'); }).join(', ') }) : null,
     h('p', { class: 'hint', text: sum.rallies + ' rallies · longest ' + sum.longest + ' shots' }),
     h('div', { class: 'ovbtns' }, buttons));
   const table = h('table', { class: 'sumtab', id: 'summaryTable' },
@@ -260,10 +382,12 @@ function overScreen(m) {
 function roomScreen() {
   const d = st();
   if (!d) return [S.room ? roomCard() : null, card(h('p', { class: 'dim', id: 'loading', text: S.conn === 'failed' ? 'Could not join this court.' : 'Connecting to court ' + S.room + '…' }), btn('Back', function () { Net.leave(); }, { kind: 'ghost', id: 'backHome' }))].filter(Boolean);
+  if (d.tour && (d.tour.t.done || !d.view || !d.match)) return bracketScreen(d);
   if (!d.match) return S.local ? [card(h('p', { class: 'dim', text: 'Starting…' }))] : lobbyScreen();
   return gameScreen();
 }
 onStateHook = function (prev, d) {
+  if (d.tour) d.tour.courts.forEach(function (c) { c.callAt = performance.now() + (c.callIn || 0); });
   const pm = prev && prev.match, m = d.match;
   if (m && pm && pm.id === m.id && pm.phase !== 'over' && m.phase === 'over') SFX.win();
   if (m && (!pm || pm.id !== m.id)) setTimeout(function () { window.scrollTo(0, 0); }, 0);

@@ -306,5 +306,24 @@ test('hydration break: only between points, freezes everything, 2 per player, re
   m.phase = 'serve'; assert.strictEqual(BD.callBreak(m, 'a'), false, 'only 2 per player');
   assert.ok(BD.callBreak(m, 'b'), 'the other player still has theirs');
 });
+test('best of 3 games: interval between games, fresh score, winner of the last game serves', () => {
+  const m = BD.newMatch({ players: two(), rng: seeded(60), cfg: { target: 5, games: 3 } });
+  assert.strictEqual(m.cfg.games, 3);
+  const win = (side) => { const w = side === 0 ? 'a' : 'b'; const pw = BD.playerOf(m, w); rallyFrom(m, w, 0, BD.sgn(pw.side) * 4, 1.5); BD.swing(m, w, 'smash', [0, 0], () => 0.5, []); runUntilPoint(m); };
+  for (let i = 0; i < 5; i++) win(1);
+  assert.strictEqual(m.phase, 'interval'); assert.deepStrictEqual(m.gamesWon, [0, 1]); assert.deepStrictEqual(m.games, [[0, 5]]);
+  for (let i = 0; i < 60 * (BD.GAME_PAUSE + 0.2); i++) BD.step(m, 1 / 60);
+  assert.strictEqual(m.phase, 'serve'); assert.deepStrictEqual(m.score, [0, 0]); assert.strictEqual(m.gameNo, 2); assert.strictEqual(m.serveSide, 1, 'winner of game 1 serves');
+  for (let i = 0; i < 5; i++) win(0);
+  for (let i = 0; i < 60 * (BD.GAME_PAUSE + 0.2); i++) BD.step(m, 1 / 60);
+  assert.deepStrictEqual(m.gamesWon, [1, 1]);
+  for (let i = 0; i < 4; i++) { win(0); win(1); }
+  win(0); assert.notStrictEqual(m.phase, 'over', '5–4 needs a 2-point lead');
+  win(0);
+  assert.strictEqual(m.phase, 'over'); assert.strictEqual(m.winner, 0);
+  assert.deepStrictEqual(m.games, [[0, 5], [5, 0], [6, 4]]);
+  assert.deepStrictEqual(BD.summary(m).gamesWon, [2, 1]);
+  const one = BD.newMatch({ players: two(), rng: seeded(61) }); assert.strictEqual(one.cfg.games, 1);
+});
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

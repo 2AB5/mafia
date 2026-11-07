@@ -319,6 +319,42 @@ html.ingame, html.ingame body { overflow-x: hidden; }
 .breakcard span { color: var(--muted); font-size: 14px; }
 .breakov, .breakov * { touch-action: manipulation !important; }
 
+/* tournament */
+.tpls { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.tpl { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 6px 4px 10px; background: var(--surface2); }
+.tpl.sel { outline: 2px solid var(--accent); }
+.tpl.off { opacity: .6; }
+.tswap { background: none; border: 0; color: inherit; font: inherit; font-weight: 700; cursor: pointer; padding: 2px; }
+.tteams { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.tteam { border: 1px solid var(--line); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.tteam.spare { border-style: dashed; }
+.tno { font-size: 12px; color: var(--muted); font-weight: 700; }
+.tcourts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.tcourt { border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.tcourt.live { border-color: var(--accent); }
+.tch { display: flex; justify-content: space-between; gap: 8px; }
+.tlr { display: grid; grid-template-columns: 1fr 28px 34px; gap: 6px; align-items: center; font-weight: 700; }
+.tlr .tn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tlr .tg { text-align: center; background: var(--surface2); border-radius: 6px; }
+.tlr .tp { text-align: right; font-size: 20px; font-variant-numeric: tabular-nums; }
+.tlr.s0 .tn { color: #3f7bff; } .tlr.s1 .tn { color: #ff5c72; }
+.bracket { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 6px; }
+.bround { display: flex; flex-direction: column; justify-content: space-around; gap: 10px; min-width: 170px; }
+.fxlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+.fx { position: relative; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); }
+.fx.live { border-color: var(--accent); }
+.fx.done { opacity: .9; }
+.fxr { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; font-size: 14px; }
+.fxr + .fxr { border-top: 1px solid var(--line); }
+.fxr.won { font-weight: 800; }
+.fxr.me .tn { text-decoration: underline; }
+.fxr .tn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fxg { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fxbadge { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 11px; background: var(--accent); color: var(--accent-ink); border-radius: 6px; padding: 1px 6px; }
+.tourbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sbg { font-size: 12px; font-weight: 700; }
+.gamescores { font-weight: 700; margin: 0; }
+
 </style>
 </head>
 <body>
@@ -2656,8 +2692,9 @@ const BD = (function () {
   };
   const BOT_NAMES = ['Saina', 'Sindhu', 'Lakshya', 'Srikanth', 'Prannoy', 'Satwik', 'Chirag', 'Gopi'];
 
-  function defaultConfig() { return { target: 10 }; }
-  function normalizeConfig(c) { c = c || {}; return { target: [5, 10, 15, 21].indexOf(c.target) !== -1 ? c.target : 10 }; }
+  function defaultConfig() { return { target: 10, games: 1 }; }
+  function normalizeConfig(c) { c = c || {}; return { target: [2, 3, 5, 10, 15, 21].indexOf(c.target) !== -1 ? c.target : 10, games: [1, 3, 5].indexOf(c.games) !== -1 ? c.games : 1 }; }
+  const GAME_PAUSE = 6;                                             // between games of a best-of-3
   function capFor(target) { return target + 5; }
   function cleanName(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, 14) || 'Player'; }
   const sgn = function (side) { return side === 0 ? 1 : -1; };
@@ -2738,6 +2775,7 @@ const BD = (function () {
       server: null, serveSide: rng() < 0.5 ? 0 : 1, nextServer: [0, 0],
       shuttle: null, lastHitTeam: null, lastHitBy: null, rallyHits: 0, landed: null,
       rally: 0, longest: 0, lastPoint: null, winner: null, resetNo: 0,
+      gameNo: 1, gamesWon: [0, 0], games: [], lastGame: null,
       stats: {}, events: [], log: []
     };
     m.players.forEach(function (p) { m.stats[p.id] = { hits: 0, smashes: 0, winners: 0, errors: 0, fastest: 0, aces: 0 }; });
@@ -3000,9 +3038,20 @@ const BD = (function () {
     addLog(m, 'Point ' + (winSide === 0 ? 'Bottom' : 'Top') + ' side (' + why + '). ' + m.score[0] + '–' + m.score[1]);
     const w = m.score[winSide], l = m.score[1 - winSide];
     if ((w >= m.cfg.target && w - l >= 2) || w >= capFor(m.cfg.target)) {
-      m.phase = 'over'; m.winner = winSide; m.phaseT = 0;
-      ev(m, { k: 'over', side: winSide });
-      addLog(m, 'Game over: ' + m.score[0] + '–' + m.score[1]);
+      // a game is won; the match may need more games
+      if (!m.gamesWon) { m.gamesWon = [0, 0]; m.games = []; m.gameNo = 1; }
+      m.gamesWon[winSide]++; m.games.push(m.score.slice());
+      const need = Math.floor((m.cfg.games || 1) / 2) + 1;
+      if (m.gamesWon[winSide] >= need) {
+        m.phase = 'over'; m.winner = winSide; m.phaseT = 0;
+        ev(m, { k: 'over', side: winSide });
+        addLog(m, 'Match over: ' + m.games.map(function (g) { return g[0] + '–' + g[1]; }).join(', '));
+        return;
+      }
+      m.lastGame = { side: winSide, score: m.score.slice(), no: m.gameNo };
+      m.phase = 'interval'; m.phaseT = 0;
+      ev(m, { k: 'game', side: winSide, no: m.gameNo });
+      addLog(m, 'Game ' + m.gameNo + ' to ' + (winSide === 0 ? 'Blue' : 'Red') + ', ' + m.score[0] + '–' + m.score[1]);
       return;
     }
     // the rally winner serves; a team that wins the serve back rotates its server
@@ -3012,7 +3061,7 @@ const BD = (function () {
   /* hydration break: only between points; the clock stops for everyone until someone resumes (or time's up) */
   function canBreak(m, id) {
     const p = playerOf(m, id);
-    return !!p && !p.left && !m.paused && (m.phase === 'point' || m.phase === 'serve') && (m.breaks[id] || 0) < BREAKS;
+    return !!p && !p.left && !m.paused && (m.phase === 'point' || m.phase === 'serve' || m.phase === 'interval') && (m.breaks[id] || 0) < BREAKS;
   }
   function callBreak(m, id) {
     if (!m.breaks) m.breaks = {};
@@ -3044,6 +3093,16 @@ const BD = (function () {
     m.t += dt; m.phaseT += dt;
     tire(m, dt);
     if (m.phase === 'point') { if (m.phaseT >= POINT_PAUSE) startServe(m, rng); return; }
+    if (m.phase === 'interval') {
+      if (m.phaseT >= GAME_PAUSE) {
+        // next game: 0–0, the winner of the last game serves, everyone gets a breather
+        m.score = [0, 0]; m.gameNo++;
+        m.serveSide = m.lastGame.side;
+        m.players.forEach(function (p) { p.energy = Math.min(100, p.energy + 40); });
+        startServe(m, rng);
+      }
+      return;
+    }
     if (m.phase === 'serve') {
       const sp = playerOf(m, m.server);
       if (sp) { const s = sgn(sp.side), right = m.score[sp.side] % 2 === 0; m.shuttle.x = sp.x + 0.25 * (right ? 1 : -1) * s; m.shuttle.y = sp.y - s * 0.35; m.shuttle.z = 1.0; }
@@ -3217,11 +3276,11 @@ const BD = (function () {
     if (r) awards.push({ id: 'wall', icon: '🧱', title: 'The wall', who: r.id, text: r.hits + ' shots returned' });
     r = top(function (x) { return x.aces; }, function (x) { return x.aces >= 1; });
     if (r) awards.push({ id: 'ace', icon: '🚀', title: 'Ace server', who: r.id, text: r.aces + ' serve' + (r.aces === 1 ? '' : 's') + ' they couldn’t return' });
-    return { rows: rows, awards: awards.slice(0, 4), score: m.score.slice(), winner: m.winner, longest: m.longest, rallies: m.rally };
+    return { rows: rows, awards: awards.slice(0, 4), score: m.score.slice(), games: (m.games || []).slice(), gamesWon: (m.gamesWon || [0, 0]).slice(), winner: m.winner, longest: m.longest, rallies: m.rally };
   }
 
   return {
-    C: C, ZONES: ZONES, preview: preview, BREAKS: BREAKS, BREAK_SECS: BREAK_SECS, canBreak: canBreak, callBreak: callBreak, resumeBreak: resumeBreak, G: G, K: K, DT: DT, REACH: REACH, MAX_SPEED: MAX_SPEED, GRACE: GRACE, POINT_PAUSE: POINT_PAUSE, SERVE_WAIT: SERVE_WAIT, SMASH_Z: SMASH_Z, LEVELS: LEVELS, BOT_NAMES: BOT_NAMES, NAMES: NAMES,
+    C: C, ZONES: ZONES, GAME_PAUSE: GAME_PAUSE, preview: preview, BREAKS: BREAKS, BREAK_SECS: BREAK_SECS, canBreak: canBreak, callBreak: callBreak, resumeBreak: resumeBreak, G: G, K: K, DT: DT, REACH: REACH, MAX_SPEED: MAX_SPEED, GRACE: GRACE, POINT_PAUSE: POINT_PAUSE, SERVE_WAIT: SERVE_WAIT, SMASH_Z: SMASH_Z, LEVELS: LEVELS, BOT_NAMES: BOT_NAMES, NAMES: NAMES,
     defaultConfig: defaultConfig, normalizeConfig: normalizeConfig, capFor: capFor, modeFor: modeFor, halfW: halfW, sgn: sgn,
     stepShuttle: stepShuttle, fly: fly, launch: launch, speedFor: speedFor, angleFor: angleFor,
     newMatch: newMatch, playerOf: playerOf, nameOf: nameOf, teamOf: teamOf, solo: solo, startServe: startServe,
@@ -3230,6 +3289,146 @@ const BD = (function () {
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = BD;
+
+/* ===== Tournament scheduler: knockout (with byes) or league, on up to two courts at once. Pure logic, tested in Node. ===== */
+const TR = (function () {
+  const MAX_ENTRIES = 16;
+  function shuffle(a, rng) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const x = a[i]; a[i] = a[j]; a[j] = x; } return a; }
+  function roundName(size) { return size === 2 ? 'Final' : size === 4 ? 'Semi-final' : size === 8 ? 'Quarter-final' : 'Round of ' + size; }
+
+  /* entries: [{ id, name, members: [playerId, …] }] */
+  function create(opts) {
+    const rng = opts.rng || Math.random;
+    const entries = (opts.entries || []).map(function (e) { return { id: e.id, name: e.name, members: e.members.slice() }; });
+    if (entries.length < 2) throw new Error('A tournament needs at least 2 entries.');
+    if (entries.length > MAX_ENTRIES) throw new Error('16 entries at most.');
+    const seen = {}; entries.forEach(function (e) { if (seen[e.id]) throw new Error('Duplicate entry.'); seen[e.id] = true; });
+    const format = opts.format === 'league' ? 'league' : 'knockout';
+    const t = { v: 1, id: opts.id || ('t' + Math.floor(rng() * 1e9).toString(36)), format: format, kind: opts.kind === 'doubles' ? 'doubles' : 'singles', courts: Math.max(1, Math.min(2, opts.courts || 2)),
+      entries: entries, fixtures: [], champion: null, done: false, n: 0 };
+    if (format === 'knockout') buildKnockout(t, rng); else buildLeague(t, rng);
+    settleByes(t);
+    return t;
+  }
+  function fx(t, o) { const f = Object.assign({ id: 'f' + (++t.n), a: null, b: null, from: null, status: 'wait', court: null, winner: null, games: [], walkover: false, bye: false }, o); t.fixtures.push(f); return f; }
+  function buildKnockout(t, rng) {
+    const ids = shuffle(t.entries.map(function (e) { return e.id; }), rng);
+    let size = 2; while (size < ids.length) size *= 2;
+    // spread the byes: the top seeds of the shuffled list get them, one per first-round pair
+    const slots = new Array(size).fill(null);
+    const byes = size - ids.length;
+    // byes go to pairs spread across the bracket (bit-reversed order), so bye winners don't meet each other early
+    const pairs = size / 2, bits = Math.round(Math.log2(pairs));
+    const rev = function (i) { let r = 0; for (let b = 0; b < bits; b++) if (i & (1 << b)) r |= 1 << (bits - 1 - b); return r; };
+    const byePair = {}; Array.from({ length: pairs }, function (_, i) { return i; }).sort(function (x, y) { return rev(x) - rev(y); }).slice(0, byes).forEach(function (i) { byePair[i] = true; });
+    let k = 0;
+    for (let i = 0; i < pairs; i++) {
+      slots[2 * i] = ids[k++] || null;
+      slots[2 * i + 1] = byePair[i] ? null : (ids[k++] || null);
+    }
+    let prev = [];
+    for (let i = 0; i < size / 2; i++) prev.push(fx(t, { round: 0, roundName: roundName(size), a: slots[2 * i], b: slots[2 * i + 1], slot: i }));
+    let r = 1, cur = size / 2;
+    while (cur >= 2) {
+      const next = [];
+      for (let i = 0; i < cur / 2; i++) next.push(fx(t, { round: r, roundName: roundName(cur), from: [prev[2 * i].id, prev[2 * i + 1].id], slot: i }));
+      prev = next; cur /= 2; r++;
+    }
+    t.rounds = r;
+  }
+  function buildLeague(t, rng) {
+    // circle method: every entry plays every other once, spread over rounds
+    const ids = shuffle(t.entries.map(function (e) { return e.id; }), rng);
+    if (ids.length % 2) ids.push(null);
+    const n = ids.length, rounds = n - 1;
+    const arr = ids.slice();
+    for (let r = 0; r < rounds; r++) {
+      for (let i = 0; i < n / 2; i++) {
+        const a = arr[i], b = arr[n - 1 - i];
+        if (a && b) fx(t, { round: r, roundName: 'Round ' + (r + 1), a: r % 2 ? b : a, b: r % 2 ? a : b });
+      }
+      arr.splice(1, 0, arr.pop());
+    }
+    t.rounds = rounds;
+  }
+  function byId(t, id) { return t.fixtures.find(function (f) { return f.id === id; }) || null; }
+  function entry(t, id) { return t.entries.find(function (e) { return e.id === id; }) || null; }
+  function nameOf(t, id) { const e = entry(t, id); return e ? e.name : 'TBD'; }
+  /* a fixture with only one side (a bye) is won without playing; winners move up the bracket */
+  function settleByes(t) {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      t.fixtures.forEach(function (f) {
+        if (f.status === 'done') return;
+        if (f.from) {
+          const fa = byId(t, f.from[0]), fb = byId(t, f.from[1]);
+          if (!f.a && fa.status === 'done') { f.a = fa.winner; changed = true; }
+          if (!f.b && fb.status === 'done') { f.b = fb.winner; changed = true; }
+          // both feeders were byes with nobody in them: impossible with our seeding, but guard anyway
+          if (fa.status === 'done' && fb.status === 'done' && (!f.a || !f.b) && (f.a || f.b)) { f.winner = f.a || f.b; f.status = 'done'; f.bye = true; changed = true; }
+          return;
+        }
+        if (t.format === 'knockout' && f.round === 0 && (!f.a || !f.b) && (f.a || f.b)) { f.winner = f.a || f.b; f.status = 'done'; f.bye = true; changed = true; }
+      });
+    }
+    t.fixtures.forEach(function (f) { if (f.status === 'wait' && f.a && f.b) f.status = 'ready'; });
+    finishIfDone(t);
+  }
+  function busy(t) { const b = {}; t.fixtures.forEach(function (f) { if (f.status === 'live') { b[f.a] = true; b[f.b] = true; } }); return b; }
+  function freeCourts(t) { const used = {}; t.fixtures.forEach(function (f) { if (f.status === 'live') used[f.court] = true; }); const out = []; for (let c = 1; c <= t.courts; c++) if (!used[c]) out.push(c); return out; }
+  /* put ready fixtures on free courts; nobody plays on two courts at once. Returns the fixtures just started. */
+  function assign(t) {
+    const started = [];
+    freeCourts(t).forEach(function (c) {
+      const b = busy(t);
+      // earlier rounds first, then the order they were drawn
+      const f = t.fixtures.filter(function (x) { return x.status === 'ready' && !b[x.a] && !b[x.b]; }).sort(function (x, y) { return x.round - y.round; })[0];
+      if (!f) return;
+      f.status = 'live'; f.court = c;
+      started.push(f);
+    });
+    return started;
+  }
+  function report(t, fid, winner, games, walkover) {
+    const f = byId(t, fid);
+    if (!f || f.status === 'done' || (winner !== f.a && winner !== f.b)) return false;
+    f.status = 'done'; f.winner = winner; f.games = (games || []).map(function (g) { return g.slice(); }); f.walkover = !!walkover;
+    settleByes(t);
+    return true;
+  }
+  function walkover(t, fid, winner) { return report(t, fid, winner, [], true); }
+  function standings(t) {
+    const rows = {};
+    t.entries.forEach(function (e) { rows[e.id] = { id: e.id, name: e.name, played: 0, won: 0, lost: 0, gw: 0, gl: 0, pw: 0, pl: 0 }; });
+    t.fixtures.forEach(function (f) {
+      if (f.status !== 'done' || f.bye || !f.a || !f.b) return;
+      const A = rows[f.a], B = rows[f.b];
+      A.played++; B.played++;
+      if (f.winner === f.a) { A.won++; B.lost++; } else { B.won++; A.lost++; }
+      f.games.forEach(function (g) { A.pw += g[0]; A.pl += g[1]; B.pw += g[1]; B.pl += g[0]; if (g[0] > g[1]) { A.gw++; B.gl++; } else { B.gw++; A.gl++; } });
+    });
+    return Object.keys(rows).map(function (k) { return rows[k]; }).sort(function (x, y) { return (y.won - x.won) || ((y.gw - y.gl) - (x.gw - x.gl)) || ((y.pw - y.pl) - (x.pw - x.pl)) || x.name.localeCompare(y.name); });
+  }
+  function finishIfDone(t) {
+    if (t.done) return;
+    if (t.format === 'knockout') {
+      const final = t.fixtures.filter(function (f) { return f.round === t.rounds - 1; })[0];
+      if (final && final.status === 'done') { t.done = true; t.champion = final.winner; }
+    } else if (t.fixtures.every(function (f) { return f.status === 'done'; })) { t.done = true; t.champion = standings(t)[0].id; }
+  }
+  function live(t) { return t.fixtures.filter(function (f) { return f.status === 'live'; }); }
+  function upcoming(t) { return t.fixtures.filter(function (f) { return f.status === 'ready' || f.status === 'wait'; }); }
+  function entryOfPlayer(t, pid) { return t.entries.find(function (e) { return e.members.indexOf(pid) !== -1; }) || null; }
+  /* pair players into teams of two (random); an odd one out is returned separately */
+  function pairUp(players, rng) {
+    const s = shuffle(players, rng || Math.random), teams = [];
+    for (let i = 0; i + 1 < s.length; i += 2) teams.push([s[i], s[i + 1]]);
+    return { teams: teams, spare: s.length % 2 ? s[s.length - 1] : null };
+  }
+  return { MAX_ENTRIES: MAX_ENTRIES, create: create, assign: assign, report: report, walkover: walkover, standings: standings, byId: byId, entry: entry, nameOf: nameOf, live: live, upcoming: upcoming, entryOfPlayer: entryOfPlayer, pairUp: pairUp, freeCourts: freeCourts, roundName: roundName };
+})();
+if (typeof module !== 'undefined' && module.exports) module.exports = TR;
 
 </script>
 <script>
@@ -3396,10 +3595,23 @@ const KIND_CODE = ['', 'air', 'clear', 'lift', 'drop', 'net', 'smash', 'drive', 
 
 /* ================= HOST ================= */
 const H = {
-  local: false, peer: null, room: '', myId: '', myToken: '', roster: [], cfg: BD.defaultConfig(), match: null,
+  local: false, peer: null, room: '', myId: '', myToken: '', roster: [], cfg: BD.defaultConfig(),
   conns: new Map(), loop: null, hb: null, sendT: null, attempt: 0, fresh: true,
-  acc: 0, last: 0, hist: [], frameAt: 0, evSent: 0, botMem: {}, lastPhase: '', lastScore: '', mvAt: {}
+  acc: 0, last: 0, mvAt: {},
+  // tournaments: two courts can run at once; quick matches use court 1
+  mode: 'quick', tcfg: { kind: 'singles', format: 'knockout', target: 10 }, teams: [], tour: null, view: 1, courts: null
 };
+const RESULT_MS = 8000, CALL_MS = 8000;
+function newCourt(n) { return { n: n, match: null, hist: [], evSent: 0, botMem: {}, frameAt: 0, key: '', fid: null, callAt: 0, reported: false, freeAt: 0 }; }
+H.courts = [null, newCourt(1), newCourt(2)];
+// H.match is the match on the court this screen is showing (court 1 for quick matches)
+Object.defineProperty(H, 'match', { get: function () { const c = H.courts[H.view]; return c ? c.match : null; }, set: function (v) { H.courts[1].match = v; H.view = 1; } });
+function courtOf(pid) { for (let c = 1; c <= 2; c++) { const m = H.courts[c].match; if (m && m.phase !== 'over' && m.players.some(function (p) { return p.id === pid && !p.left; })) return H.courts[c]; } return null; }
+function matchOf(pid) { const c = courtOf(pid); return c ? c.match : null; }
+function busyNow() { return H.tour ? !H.tour.done : !!(H.courts[1].match && H.courts[1].match.phase !== 'over'); }
+function seatLimit() { return H.mode === 'tour' ? TR.MAX_ENTRIES : 4; }
+/* which court a connection sees: the one they're playing on, else what they picked (0 = the bracket) */
+function viewOf(pid, chosen) { const c = courtOf(pid); if (c) return c.n; if (!H.tour) return 1; return chosen === 1 || chosen === 2 ? chosen : 0; }
 function hostUniqueName(nm, exceptId) {
   const taken = {};
   H.roster.forEach(function (r) { if (r.id !== exceptId) taken[r.name.toLowerCase()] = true; });
@@ -3421,9 +3633,15 @@ function hostCreate(name) {
 function hostResume(saved) {
   H.local = false; S.local = false;
   H.room = saved.room; H.myId = saved.myId; H.myToken = saved.myToken; H.roster = saved.roster || [];
-  H.cfg = BD.normalizeConfig(saved.cfg); H.match = saved.match || null; H.fresh = false; H.attempt = 0;
-  // pick the rally up again with a fresh serve
-  if (H.match && H.match.phase !== 'over') { H.match.phase = 'point'; H.match.phaseT = BD.POINT_PAUSE - 1.5; }
+  H.cfg = BD.normalizeConfig(saved.cfg); H.fresh = false; H.attempt = 0;
+  H.mode = saved.mode === 'tour' ? 'tour' : 'quick'; H.tcfg = saved.tcfg || H.tcfg; H.teams = saved.teams || [];
+  H.courts = [null, newCourt(1), newCourt(2)]; H.view = 1;
+  H.tour = saved.tour || null;
+  if (H.tour && saved.courts) saved.courts.forEach(function (sc, i) { const c = H.courts[i + 1]; c.fid = sc.fid; c.reported = sc.reported; c.match = sc.match; c.callAt = Date.now() + 3000; c.freeAt = Date.now() + 3000; c.evSent = sc.match ? sc.match.evN || 0 : 0; });
+  else H.courts[1].match = saved.match || null;
+  if (H.tour) H.view = 0;
+  // pick each rally up again with a fresh serve
+  [1, 2].forEach(function (n) { const m = H.courts[n].match; if (m && m.phase !== 'over') { m.phase = 'point'; m.phaseT = BD.POINT_PAUSE - 1.5; m.paused = null; } });
   hostBoot();
 }
 /* practice: you plus computer players, all on this phone */
@@ -3489,7 +3707,7 @@ function hostHeartbeat() {
   const now = Date.now();
   H.conns.forEach(function (rec, key) { if (now - rec.last > 20000) { try { rec.conn.close(); } catch (e) { /* ignore */ } H.conns.delete(key); hostPublishSoon(); } });
 }
-function inMatch(pid) { return !!(H.match && pid && H.match.players.some(function (p) { return p.id === pid && !p.left; })); }
+function inMatch(pid) { return !!(pid && courtOf(pid)); }
 function hostHandle(rec, d) {
   if (!d || typeof d !== 'object' || typeof d.t !== 'string') return;
   if (d.t === 'ping') { hostSend(rec, { t: 'pong', c: d.c, h: H.match ? H.match.t : 0 }); return; }
@@ -3506,11 +3724,11 @@ function hostHandle(rec, d) {
   }
   if (!rec.token) return;
   if (d.t === 'sit') {
-    if (H.match && H.match.phase !== 'over') { hostSend(rec, { t: 'err', msg: 'A game is on. You can join when it ends.' }); return; }
+    if (busyNow()) { hostSend(rec, { t: 'err', msg: H.tour ? 'A tournament is on. You can watch, and join the next one.' : 'A game is on. You can join when it ends.' }); return; }
     let r = H.roster.find(function (x) { return x.token === rec.token; });
     if (r) r.name = hostUniqueName(d.name, r.id);
     else {
-      if (H.roster.length >= 4) { hostSend(rec, { t: 'err', msg: 'The court is full (4 players), so you’re watching. You can join when a spot opens.' }); return; }
+      if (H.roster.length >= seatLimit()) { hostSend(rec, { t: 'err', msg: H.mode === 'tour' ? 'The tournament is full (16 players).' : 'The court is full (4 players), so you’re watching. You can join when a spot opens.' }); return; }
       const c = sideCounts();
       r = { id: 'p' + randId(7), token: rec.token, name: '', side: c[0] <= c[1] ? 0 : 1 };
       if ((d.side === 0 || d.side === 1) && c[d.side] < 2) r.side = d.side;
@@ -3522,8 +3740,9 @@ function hostHandle(rec, d) {
     hostChanged();
     return;
   }
+  if (d.t === 'view') { rec.view = Number(d.c) || 0; hostSend(rec, hostSnapshot(rec.pid, rec)); return; }
   if (d.t === 'leave') {
-    if ((H.match && H.match.phase !== 'over') || !rec.pid || rec.pid === H.myId) return;
+    if (busyNow() || !rec.pid || rec.pid === H.myId) return;
     const gone = rec.pid;
     H.roster = H.roster.filter(function (x) { return x.id !== gone; });
     H.conns.forEach(function (o) { if (o.pid === gone) o.pid = null; });
@@ -3534,23 +3753,45 @@ function hostHandle(rec, d) {
   if (!rec.pid) return;
   if (d.t === 'side') { hostSetSide(rec.pid, d.side); return; }
   if (d.t === 'mv') { hostMove(rec.pid, Number(d.x), Number(d.y)); return; }
-  if (d.t === 'brk') { if (H.match && BD.callBreak(H.match, rec.pid)) hostChanged(); return; }
-  if (d.t === 'res') { if (H.match && BD.resumeBreak(H.match, rec.pid)) hostChanged(); return; }
+  if (d.t === 'brk') { const m = matchOf(rec.pid); if (m && BD.callBreak(m, rec.pid)) hostChanged(); return; }
+  if (d.t === 'res') { const m = matchOf(rec.pid); if (m && BD.resumeBreak(m, rec.pid)) hostChanged(); return; }
   if (d.t === 'hit') { hostMove(rec.pid, Number(d.x), Number(d.y)); hostHit(rec.pid, d.b, d.a, Number(d.vt)); }
 }
 function sideCounts() { const c = [0, 0]; H.roster.forEach(function (r) { c[r.side]++; }); return c; }
 
 /* ---------- lobby control ---------- */
-function hostSetCfg(patch) { if (H.match && H.match.phase !== 'over') return; H.cfg = BD.normalizeConfig(Object.assign({}, H.cfg, patch)); hostChanged(); }
+function hostSetCfg(patch) { if (busyNow()) return; H.cfg = BD.normalizeConfig(Object.assign({}, H.cfg, patch)); hostChanged(); }
+function hostSetMode(mode) { if (busyNow()) return; H.mode = mode === 'tour' ? 'tour' : 'quick'; if (H.tour && H.tour.done) H.tour = null; hostChanged(); }
+function hostSetT(patch) {
+  if (busyNow()) return;
+  const t = Object.assign({}, H.tcfg, patch);
+  H.tcfg = { kind: t.kind === 'doubles' ? 'doubles' : 'singles', format: t.format === 'league' ? 'league' : 'knockout', target: [2, 3, 5, 10, 15, 21].indexOf(t.target) !== -1 ? t.target : 10 };
+  hostChanged();
+}
+/* doubles teams: kept pairs, plus anyone new paired up in the order they joined */
+function teamsNow() {
+  const ids = H.roster.map(function (r) { return r.id; }), used = {}, pairs = [];
+  (H.teams || []).forEach(function (t) { if (t.length === 2 && ids.indexOf(t[0]) !== -1 && ids.indexOf(t[1]) !== -1 && !used[t[0]] && !used[t[1]]) { pairs.push(t.slice()); used[t[0]] = used[t[1]] = true; } });
+  const rest = ids.filter(function (id) { return !used[id]; });
+  for (let i = 0; i + 1 < rest.length; i += 2) pairs.push([rest[i], rest[i + 1]]);
+  return { pairs: pairs, spare: rest.length % 2 ? rest[rest.length - 1] : null };
+}
+function hostShuffleTeams() { if (busyNow()) return; H.teams = TR.pairUp(H.roster.map(function (r) { return r.id; }), secureRng).teams; hostChanged(); }
+function hostSwapPlayers(a, b) {
+  if (busyNow() || a === b) return;
+  const t = teamsNow(); H.teams = t.pairs.map(function (p) { return p.map(function (x) { return x === a ? b : x === b ? a : x; }); });
+  if (t.spare === a || t.spare === b) H.teams = H.teams.map(function (p) { return p.map(function (x) { return x === (t.spare === a ? b : a) ? t.spare : x; }); });
+  hostChanged();
+}
 function hostSetSide(id, side) {
-  if ((H.match && H.match.phase !== 'over') || (side !== 0 && side !== 1)) return;
+  if (busyNow() || (side !== 0 && side !== 1)) return;
   const r = H.roster.find(function (x) { return x.id === id; });
   if (!r || r.side === side) return;
   if (sideCounts()[side] >= 2) { if (id === H.myId) toast('That side already has 2 players.'); return; }
   r.side = side; hostChanged();
 }
 function hostAddBot(level) {
-  if ((H.match && H.match.phase !== 'over') || H.roster.length >= 4) return;
+  if (busyNow() || H.roster.length >= seatLimit()) return;
   const used = {}; H.roster.forEach(function (r) { used[r.name] = true; });
   const free = BD.BOT_NAMES.filter(function (n) { return !used[n]; });
   const c = sideCounts();
@@ -3558,7 +3799,7 @@ function hostAddBot(level) {
   hostChanged();
 }
 function hostCycleBot(id) {
-  if (H.match && H.match.phase !== 'over') return;
+  if (busyNow()) return;
   const r = H.roster.find(function (x) { return x.id === id && x.bot; }); if (!r) return;
   const order = ['easy', 'normal', 'hard']; r.bot = order[(order.indexOf(r.bot) + 1) % 3]; hostChanged();
 }
@@ -3569,27 +3810,79 @@ function startProblem() {
   if (c[0] > 2 || c[1] > 2) return 'Two players per side at most.';
   return '';
 }
+function tourProblem() {
+  const n = H.roster.length;
+  if (H.tcfg.kind === 'doubles') {
+    if (n < 4) return 'Doubles needs at least 4 players (2 teams).';
+    if (n % 2) return 'Odd number of players: add a computer player so everyone has a partner.';
+  } else if (n < 2) return 'You need at least 2 players.';
+  return '';
+}
+function hostStartTour() {
+  const why = tourProblem(); if (why) { setErr(why); return; }
+  const nm = function (id) { const r = H.roster.find(function (x) { return x.id === id; }); return r ? r.name : 'Player'; };
+  const entries = H.tcfg.kind === 'doubles'
+    ? teamsNow().pairs.map(function (p, i) { return { id: 'e' + i + p[0], name: nm(p[0]) + ' & ' + nm(p[1]), members: p }; })
+    : H.roster.map(function (r) { return { id: 'e' + r.id, name: r.name, members: [r.id] }; });
+  try { H.tour = TR.create({ entries: entries, format: H.tcfg.format, kind: H.tcfg.kind, courts: 2, rng: secureRng }); } catch (e) { setErr(e.message); return; }
+  H.courts = [null, newCourt(1), newCourt(2)]; H.view = 0; H.mvAt = {};
+  View.reset();
+  hostTourAssign(3000);
+  hostChanged();
+}
+/* put the next matches on free courts, with a short "you're up" countdown */
+function hostTourAssign(delay) {
+  const t = H.tour; if (!t || t.done) return;
+  TR.assign(t).forEach(function (f) { const c = H.courts[f.court]; c.fid = f.id; c.callAt = Date.now() + (delay === undefined ? CALL_MS : delay); c.reported = false; });
+}
+function hostTourCreateMatch(c) {
+  const t = H.tour, f = TR.byId(t, c.fid);
+  const rosterOf = function (id) { return H.roster.find(function (r) { return r.id === id; }) || { id: id, name: 'Player' }; };
+  const side = function (eid, s) { return TR.entry(t, eid).members.map(function (id) { const r = rosterOf(id); return { id: r.id, name: r.name, side: s, bot: r.bot }; }); };
+  try { c.match = BD.newMatch({ players: side(f.a, 0).concat(side(f.b, 1)), cfg: { target: H.tcfg.target, games: 3 }, rng: secureRng }); }
+  catch (e) { console.warn(e); TR.walkover(t, f.id, f.a); c.fid = null; return; }
+  c.match.fid = f.id; c.match.court = c.n; c.match.round = f.roundName;
+  c.hist = []; c.evSent = c.match.evN || 0; c.botMem = {}; c.key = '';
+  const ids = c.match.players.map(function (p) { return p.id; });
+  if (ids.indexOf(H.myId) !== -1) { H.view = c.n; View.reset(); }
+  hostEach(function (rec) { if (ids.indexOf(rec.pid) !== -1) rec.view = c.n; });
+}
+function hostWalkover(fid, winner) {
+  const t = H.tour; if (!t) return;
+  const f = TR.byId(t, fid); if (!f || f.status === 'done') return;
+  const c = f.court ? H.courts[f.court] : null;
+  if (c && c.fid === fid && c.match && c.match.phase !== 'over') { c.match.phase = 'over'; c.match.winner = winner === f.a ? 0 : 1; c.match.walkover = true; }
+  TR.walkover(t, fid, winner);
+  if (c && c.fid === fid) { c.reported = true; c.freeAt = Date.now() + 2000; }
+  hostChanged();
+}
+function hostEndTour() { H.tour = null; H.courts = [null, newCourt(1), newCourt(2)]; H.view = 1; View.reset(); hostChanged(); }
+function hostView(c) { if (courtOf(H.myId)) return; H.view = c; View.reset(); hostPublish(); }
 function hostStart() {
+  if (H.mode === 'tour' && !H.local) { hostStartTour(); return; }
   const why = startProblem(); if (why) { setErr(why); return; }
   try {
     H.match = BD.newMatch({ players: H.roster.map(function (r) { return { id: r.id, name: r.name, side: r.side, bot: r.bot }; }), cfg: H.cfg, rng: secureRng });
   } catch (e) { setErr(e.message); return; }
-  H.hist = []; H.evSent = H.match.evN || 0; H.botMem = {}; H.acc = 0; H.last = performance.now(); H.mvAt = {};
+  const c1 = H.courts[1]; c1.hist = []; c1.evSent = H.match.evN || 0; c1.botMem = {}; c1.key = ''; c1.fid = null;
+  H.acc = 0; H.last = performance.now(); H.mvAt = {};
   View.reset();
   hostChanged();
 }
-function hostRematch() { if (!H.match || H.match.phase !== 'over') return; hostStart(); }
-function hostToLobby() { if (H.local) { hostClose(); return; } H.match = null; hostChanged(); }
+function hostRematch() { if (H.tour || !H.match || H.match.phase !== 'over') return; hostStart(); }
+function hostToLobby() { if (H.local) { hostClose(); return; } if (H.tour) { if (H.tour.done) hostEndTour(); return; } H.match = null; hostChanged(); }
 function hostRemove(id) {
   if (id === H.myId) return;
-  if (H.match && H.match.phase !== 'over') { BD.leave(H.match, id); }
+  const pm = matchOf(id);
+  if (pm) { BD.leave(pm, id); }
+  else if (busyNow()) return;
   else {
     H.roster = H.roster.filter(function (x) { return x.id !== id; });
     H.conns.forEach(function (rec) { if (rec.pid === id) { rec.pid = null; hostSend(rec, { t: 'kicked' }); } });
   }
   hostChanged();
 }
-function hostEndGame() { const m = H.match; if (!m || m.phase === 'over') return; m.phase = 'over'; m.winner = m.score[0] === m.score[1] ? null : m.score[0] > m.score[1] ? 0 : 1; hostChanged(); }
+function hostEndGame() { if (H.tour) return; const m = H.courts[1].match; if (!m || m.phase === 'over') return; m.phase = 'over'; m.winner = m.score[0] === m.score[1] ? null : m.score[0] > m.score[1] ? 0 : 1; hostChanged(); }
 function hostReact(name, e) {
   if (REACTIONS.indexOf(e) === -1) return;
   hostEach(function (rec) { hostSend(rec, { t: 'react', n: name, e: e }); });
@@ -3598,60 +3891,82 @@ function hostReact(name, e) {
 
 /* ---------- the real-time part ---------- */
 function hostMove(pid, x, y) {
-  const m = H.match; if (!m || !inMatch(pid)) return;
+  const m = matchOf(pid); if (!m) return;
   const now = performance.now(), dt = Math.min(0.25, (now - (H.mvAt[pid] || now - 33)) / 1000);
   H.mvAt[pid] = now;
   BD.moveTo(m, pid, x, y, dt);
 }
 function hostHit(pid, button, aim, vt) {
-  const m = H.match; if (!m || !inMatch(pid)) return;
+  const c = courtOf(pid); if (!c) return;
+  const m = c.match;
   if (['clear', 'drop', 'smash'].indexOf(button) === -1) return;
   const a = Array.isArray(aim) ? [Number(aim[0]) || 0, Number(aim[1]) || 0] : [0, 0];
   // rewind: try the shuttle as the player saw it (up to 0.3 s ago), newest first
   const from = isFinite(vt) ? Math.max(m.t - 0.3, vt - 0.06) : m.t - 0.12;
-  const past = H.hist.filter(function (h) { return h.t >= from; }).map(function (h) { return h.s; }).reverse();
+  const past = c.hist.filter(function (h) { return h.t >= from; }).map(function (h) { return h.s; }).reverse();
   BD.swing(m, pid, button, a, secureRng, past);
 }
 function hostTick() {
-  const m = H.match;
   const now = performance.now();
-  if (!m || (H.local && S.paused)) { H.last = now; return; }
-  H.acc += Math.min(250, now - H.last); H.last = now;
+  if (H.local && S.paused) { H.last = now; return; }
+  const wall = Date.now();
+  // tournament bookkeeping: start called matches, report finished ones, free courts
+  if (H.tour) for (let n = 1; n <= 2; n++) {
+    const c = H.courts[n];
+    if (c.fid && !c.reported && (!c.match || c.match.fid !== c.fid) && wall >= c.callAt) { hostTourCreateMatch(c); hostChanged(); }
+    if (c.match && c.match.fid === c.fid && c.match.phase === 'over' && !c.reported) {
+      c.reported = true; c.freeAt = wall + RESULT_MS;
+      const f = TR.byId(H.tour, c.fid);
+      if (f && f.status !== 'done') TR.report(H.tour, f.id, c.match.winner === 0 ? f.a : f.b, c.match.games || []);
+      hostChanged();
+    }
+    if (c.reported && c.fid && wall >= c.freeAt) { c.fid = null; hostTourAssign(); hostChanged(); }
+  }
+  let dtAcc = H.acc + Math.min(250, now - H.last); H.last = now;
   let steps = 0;
-  while (H.acc >= BD.DT * 1000 && steps < 40) {
-    H.acc -= BD.DT * 1000; steps++;
-    if (m.phase === 'over') { H.acc = 0; break; }
-    // the host's own figure follows its joystick
-    { const me = BD.playerOf(m, H.myId); if (me && !me.left && !window.__bdAuto) { const t = Input.target(m, me, BD.DT); if (t) BD.moveTo(m, H.myId, t[0], t[1], BD.DT); } }
-    if (steps % 2 === 1) m.players.forEach(function (p) {
-      const auto = p.id === H.myId && window.__bdAuto;
-      if ((!p.bot && !auto) || p.left) return;
-      if (auto) p.bot = window.__bdAuto;
-      const th = BD.botThink(m, p, secureRng, H.botMem[p.id] || (H.botMem[p.id] = {}));
-      BD.botMove(m, p, th, BD.DT * 2);
-      if (th.hit) BD.swing(m, p.id, th.hit.button, th.hit.aim, secureRng, []);
-      if (auto) p.bot = null;
-    });
-    BD.step(m, BD.DT, secureRng);
-    if (m.shuttle) { H.hist.push({ t: m.t, s: { x: m.shuttle.x, y: m.shuttle.y, z: m.shuttle.z, vx: m.shuttle.vx, vy: m.shuttle.vy, vz: m.shuttle.vz, held: m.shuttle.held } }); if (H.hist.length > 60) H.hist.splice(0, H.hist.length - 60); }
+  while (dtAcc >= BD.DT * 1000 && steps < 40) {
+    dtAcc -= BD.DT * 1000; steps++;
+    for (let n = 1; n <= 2; n++) {
+      const c = H.courts[n], m = c.match;
+      if (!m || m.phase === 'over') continue;
+      // the host's own figure follows its joystick
+      { const me = BD.playerOf(m, H.myId); if (me && !me.left && !window.__bdAuto) { const t = Input.target(m, me, BD.DT); if (t) BD.moveTo(m, H.myId, t[0], t[1], BD.DT); } }
+      if (steps % 2 === 1) m.players.forEach(function (p) {
+        const auto = p.id === H.myId && window.__bdAuto;
+        if ((!p.bot && !auto) || p.left) return;
+        if (auto) p.bot = window.__bdAuto;
+        const th = BD.botThink(m, p, secureRng, c.botMem[p.id] || (c.botMem[p.id] = {}));
+        BD.botMove(m, p, th, BD.DT * 2);
+        if (th.hit) BD.swing(m, p.id, th.hit.button, th.hit.aim, secureRng, []);
+        if (auto) p.bot = null;
+      });
+      BD.step(m, BD.DT, secureRng);
+      if (m.shuttle) { c.hist.push({ t: m.t, s: { x: m.shuttle.x, y: m.shuttle.y, z: m.shuttle.z, vx: m.shuttle.vx, vy: m.shuttle.vy, vz: m.shuttle.vz, held: m.shuttle.held } }); if (c.hist.length > 60) c.hist.splice(0, c.hist.length - 60); }
+    }
   }
-  // stream frames
-  if (now - H.frameAt >= FRAME_MS) {
-    H.frameAt = now;
-    const fr = hostFrame(m);
-    if (!H.local) hostEach(function (rec) { hostSend(rec, fr); });
-    View.frame(fr, true);
+  H.acc = steps >= 40 ? 0 : dtAcc;
+  // stream each court's frames to whoever is on or watching it
+  for (let n = 1; n <= 2; n++) {
+    const c = H.courts[n], m = c.match;
+    if (!m) continue;
+    if (now - c.frameAt >= FRAME_MS) {
+      c.frameAt = now;
+      const fr = hostFrame(m, c);
+      if (!H.local) hostEach(function (rec) { if (viewOf(rec.pid, rec.view) === n) hostSend(rec, fr); });
+      if (hostViewNow() === n) View.frame(fr, true);
+    }
+    const key = m.phase + ':' + m.score.join('-') + ':' + m.resetNo + ':' + (m.paused ? 'p' + (m.paused.count === null ? '' : 'c') : '') + ':' + (m.gameNo || 1);
+    if (key !== c.key) { c.key = key; hostChanged(); }
   }
-  const key = m.phase + ':' + m.score.join('-') + ':' + m.resetNo + ':' + (m.paused ? 'p' + (m.paused.count === null ? '' : 'c') : '');
-  if (key !== H.lastPhase) { H.lastPhase = key; hostChanged(); }
 }
+function hostViewNow() { const c = courtOf(H.myId); if (c) { H.view = c.n; return c.n; } return H.view; }
 function r3(v) { return Math.round(v * 1000) / 1000; }
-function hostFrame(m) {
-  const evs = m.events.filter(function (e) { return e.n > H.evSent; });
-  if (evs.length) H.evSent = evs[evs.length - 1].n;
+function hostFrame(m, c) {
+  const evs = m.events.filter(function (e) { return e.n > c.evSent; });
+  if (evs.length) c.evSent = evs[evs.length - 1].n;
   const s = m.shuttle || { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
   return {
-    t: 'f', ts: r3(m.t), ph: m.phase, r: m.resetNo, sv: m.server, lh: m.lastHitTeam, rh: m.rallyHits,
+    t: 'f', c: c.n, ts: r3(m.t), ph: m.phase, r: m.resetNo, sv: m.server, lh: m.lastHitTeam, rh: m.rallyHits,
     pz: m.paused ? [m.paused.by, Math.max(0, Math.round(m.paused.left)), m.paused.count === null ? -1 : Math.ceil(m.paused.count)] : null,
     s: [r3(s.x), r3(s.y), r3(s.z), r3(s.vx), r3(s.vy), r3(s.vz), s.held ? 1 : 0, m.landed ? 1 : 0],
     p: m.players.map(function (p) { return [r3(p.x), r3(p.y), Math.round(p.energy), Math.round(p.swing * 100), KIND_CODE.indexOf(p.swingKind || ''), p.hand === 'back' ? 1 : 0]; }),
@@ -3663,8 +3978,9 @@ let saveT = null;
 function hostSaveSoon() { if (!saveT) saveT = setTimeout(function () { saveT = null; hostSave(); }, 600); }
 function hostSave() {
   if (!S.isHost || !H.room || H.local) return;
-  const m = H.match ? Object.assign({}, H.match, { events: [] }) : null;
-  storeJSON('host', { room: H.room, myId: H.myId, myToken: H.myToken, roster: H.roster, cfg: H.cfg, match: m, savedAt: Date.now() });
+  const m = H.tour ? null : (H.courts[1].match ? Object.assign({}, H.courts[1].match, { events: [] }) : null);
+  storeJSON('host', { room: H.room, myId: H.myId, myToken: H.myToken, roster: H.roster, cfg: H.cfg, match: m, mode: H.mode, tcfg: H.tcfg, teams: H.teams,
+    tour: H.tour, courts: H.tour ? [1, 2].map(function (n) { const c = H.courts[n]; return { fid: c.fid, reported: c.reported, match: c.match ? Object.assign({}, c.match, { events: [] }) : null }; }) : null, savedAt: Date.now() });
 }
 function hostPublishSoon() { if (!H.sendT) H.sendT = setTimeout(hostPublish, 0); }
 function hostOnline() {
@@ -3686,22 +4002,34 @@ function slimMatch(m) {
   if (!m) return null;
   const c = Object.assign({}, m); c.events = []; c.log = m.log.slice(-6); return JSON.parse(JSON.stringify(c));
 }
-function hostSnapshot(pid) {
+function tourSummary() {
+  const t = H.tour; if (!t) return null;
+  const courts = [1, 2].map(function (n) {
+    const c = H.courts[n], m = c.match, f = c.fid ? TR.byId(t, c.fid) : null;
+    return { n: n, fid: c.fid, round: f ? f.roundName : '', a: f ? f.a : null, b: f ? f.b : null, callIn: c.fid && (!m || m.fid !== c.fid) ? Math.max(0, c.callAt - Date.now()) : 0,
+      live: m && f && m.fid === f.id ? { score: m.score.slice(), gamesWon: (m.gamesWon || [0, 0]).slice(), gameNo: m.gameNo || 1, phase: m.phase, winner: m.winner } : null };
+  });
+  return { t: JSON.parse(JSON.stringify(t)), courts: courts, standings: t.format === 'league' ? TR.standings(t) : null };
+}
+function hostSnapshot(pid, rec) {
   const on = hostOnline();
+  const view = rec ? viewOf(pid, rec.view) : hostViewNow();
+  const vm = view ? H.courts[view].match : null;
   return {
     t: 'state', you: pid || null, room: H.room, hostId: H.myId, local: H.local,
     roster: H.roster.map(function (r) { return { id: r.id, name: r.name, side: r.side, bot: r.bot || null, on: !!on[r.id] }; }),
-    cfg: H.cfg, match: slimMatch(H.match), viewers: H.local ? [] : hostViewers()
+    cfg: H.cfg, match: slimMatch(vm), view: view, viewers: H.local ? [] : hostViewers(),
+    mode: H.mode, tcfg: H.tcfg, teams: H.mode === 'tour' && H.tcfg.kind === 'doubles' ? teamsNow() : null, tour: tourSummary()
   };
 }
 function hostPublish() {
   H.sendT = null;
-  if (!H.local) H.conns.forEach(function (rec) { if (rec.token) hostSend(rec, hostSnapshot(rec.pid)); });
+  if (!H.local) H.conns.forEach(function (rec) { if (rec.token) hostSend(rec, hostSnapshot(rec.pid, rec)); });
   applyState(hostSnapshot(H.myId));
 }
 function hostClose() {
   try { if (H.peer) H.peer.destroy(); } catch (e) { /* ignore */ }
-  H.peer = null; H.conns.clear(); H.match = null;
+  H.peer = null; H.conns.clear(); H.courts = [null, newCourt(1), newCourt(2)]; H.view = 1; H.tour = null; H.mode = 'quick';
   clearInterval(H.loop); clearInterval(H.hb); H.loop = null; H.hb = null;
   if (!H.local) storeJSON('host', null);
   H.local = false; S.local = false; S.isHost = false;
@@ -3814,7 +4142,7 @@ function clientSendMove() {
 }
 function clientHandle(d) {
   if (!d || typeof d !== 'object') return;
-  if (d.t === 'f') { View.frame(d, false); return; }
+  if (d.t === 'f') { if (S.st && S.st.tour && d.c && d.c !== S.st.view) return; View.frame(d, false); return; }
   if (d.t === 'state') {
     applyState(d);
     if (S.me) S.wantSeat = false;
@@ -3849,8 +4177,9 @@ const Net = {
     if (S.isHost) { hostHit(H.myId, button, aim, View.renderTs()); return; }
     clientSend({ t: 'hit', b: button, a: [r3(aim[0]), r3(aim[1])], x: r3(me.x), y: r3(me.y), vt: r3(View.renderTs()) });
   },
-  pause: function () { if (S.isHost) { if (H.match && BD.callBreak(H.match, H.myId)) hostChanged(); } else clientSend({ t: 'brk' }); },
-  resume: function () { if (S.isHost) { if (H.match && BD.resumeBreak(H.match, H.myId)) hostChanged(); } else clientSend({ t: 'res' }); },
+  pause: function () { if (S.isHost) { const m = matchOf(H.myId); if (m && BD.callBreak(m, H.myId)) hostChanged(); } else clientSend({ t: 'brk' }); },
+  resume: function () { if (S.isHost) { const m = matchOf(H.myId); if (m && BD.resumeBreak(m, H.myId)) hostChanged(); } else clientSend({ t: 'res' }); },
+  view: function (c) { if (S.isHost) hostView(c); else clientSend({ t: 'view', c: c }); },
   react: function (e) { if (S.isHost) hostReact(S.name || 'Host', e); else clientSend({ t: 'react', e: e }); },
   side: function (s) { if (S.isHost) hostSetSide(H.myId, s); else clientSend({ t: 'side', side: s }); },
   watch: function () { S.wantSeat = false; S.watchOnly = true; if (S.room) store('watch.' + S.room, '1'); if (!S.isHost) clientSend({ t: 'leave' }); },
@@ -4507,8 +4836,14 @@ function roomCard() {
 }
 
 /* ---------- lobby ---------- */
+function modeSwitch(d) {
+  if (!S.isHost) return null;
+  return seg('Mode', 'modePick', [['quick', 'Quick match'], ['tour', 'Tournament']], d.mode || 'quick', function (v) { hostSetMode(v); });
+}
 function lobbyScreen() {
-  const d = st(), host = S.isHost, roster = d.roster;
+  const d = st();
+  if (d.mode === 'tour') return tourLobby(d);
+  const host = S.isHost, roster = d.roster;
   const me = roster.find(function (r) { return r.id === S.me; });
   const c = [0, 0]; roster.forEach(function (r) { c[r.side]++; });
   const col = function (s) {
@@ -4537,12 +4872,13 @@ function lobbyScreen() {
   if (host && roster.length < 4) sc.appendChild(h('div', { class: 'addbot' }, h('span', { class: 'lbl', text: 'Add a computer player' }),
     h('div', { class: 'row' }, ['easy', 'normal', 'hard'].map(function (lv) { return btn('+ ' + lv[0].toUpperCase() + lv.slice(1), function () { hostAddBot(lv); }, { kind: 'small', id: 'addBot-' + lv }); }))));
   const nodes = [roomCard(), sc];
-  if (host) nodes.push(card(h('h3', { text: 'Game' }),
+  if (host) nodes.push(card(h('h3', { text: 'Game' }), modeSwitch(d),
     seg('Points to win (win by 2)', 'cfgTarget', [[5, '5'], [10, '10'], [15, '15'], [21, '21']], d.cfg.target, function (v) { hostSetCfg({ target: v }); }),
+    seg('Games (sets)', 'cfgGames', [[1, 'Single game'], [3, 'Best of 3'], [5, 'Best of 5']], d.cfg.games || 1, function (v) { hostSetCfg({ games: v }); }),
     btn(why || 'Start the game', function () { hostStart(); }, { kind: 'primary big', id: 'startBtn', disabled: !!why }),
     h('p', { class: 'hint', text: 'Your phone runs the game. Keep this page open while you play.' }),
     confirmBtn('close', 'Close court', 'Confirm: close court for everyone', function () { Net.leave(); })));
-  else nodes.push(card(h('p', { class: 'dim', id: 'waitHost', text: 'First to ' + d.cfg.target + ', win by 2. ' + nameOf(d.hostId) + ' starts the game.' }), confirmBtn('leave', 'Leave', 'Confirm: leave', function () { Net.leave(); })));
+  else nodes.push(card(h('p', { class: 'dim', id: 'waitHost', text: ((d.cfg.games || 1) > 1 ? 'Best of ' + d.cfg.games + ' games, each to ' : 'First to ') + d.cfg.target + ', win by 2. ' + nameOf(d.hostId) + ' starts the game.' }), confirmBtn('leave', 'Leave', 'Confirm: leave', function () { Net.leave(); })));
   nodes.push(howCard(false));
   return nodes;
 }
@@ -4551,6 +4887,115 @@ function startProblem2(d) {
   if (d.roster.length < 2) return 'Waiting for a second player, or add a computer player.';
   if (!c[0] || !c[1]) return 'Both sides need a player: tap ⇄ to move someone.';
   return '';
+}
+
+/* ---------- tournament ---------- */
+const TSEL = { a: null };
+function tourLobby(d) {
+  const host = S.isHost, roster = d.roster, tc = d.tcfg, me = roster.find(function (r) { return r.id === S.me; });
+  const nm = function (id) { const r = rosterEntry(id); return r ? r.name + (r.bot ? ' 🤖' : '') : '?'; };
+  const n = roster.length, dbl = tc.kind === 'doubles';
+  let why = '';
+  if (dbl) why = n < 4 ? 'Doubles needs at least 4 players.' : n % 2 ? 'Odd number: add a computer player so everyone has a partner.' : '';
+  else why = n < 2 ? 'Waiting for players (at least 2).' : '';
+  const chip = function (id) {
+    const r = rosterEntry(id) || {}, sel = TSEL.a === id;
+    return h('li', { class: 'tpl' + (sel ? ' sel' : '') + (r.on === false ? ' off' : ''), 'data-id': id },
+      host && dbl ? h('button', { type: 'button', class: 'tswap', 'aria-label': 'Swap ' + nm(id), 'data-swap': id, onclick: function () { if (!TSEL.a) TSEL.a = id; else { hostSwapPlayers(TSEL.a, id); TSEL.a = null; } render(); } }, nm(id)) : h('span', { class: 'nm', text: nm(id) }),
+      id === S.me ? h('em', { class: 'tag', text: 'you' }) : null, id === d.hostId ? h('em', { class: 'tag', text: 'host' }) : null,
+      r.bot && host ? h('button', { type: 'button', class: 'tag botb', 'data-bot': id, onclick: function () { hostCycleBot(id); } }, r.bot) : null,
+      host && id !== S.me ? h('button', { type: 'button', class: 'xbtn', 'aria-label': 'Remove ' + nm(id), 'data-remove': id, onclick: function () { hostRemove(id); } }, icon('x', 14)) : null);
+  };
+  let list;
+  if (dbl && d.teams) {
+    list = h('ol', { class: 'tteams', id: 'teamList' }, d.teams.pairs.map(function (pr, i) { return h('li', { class: 'tteam' }, h('span', { class: 'tno', text: 'Team ' + (i + 1) }), h('ul', { class: 'tpls' }, pr.map(chip))); }),
+      d.teams.spare ? h('li', { class: 'tteam spare' }, h('span', { class: 'tno', text: 'Needs a partner' }), h('ul', { class: 'tpls' }, chip(d.teams.spare))) : null);
+  } else list = h('ul', { class: 'tpls', id: 'playerList' }, roster.map(function (r) { return chip(r.id); }));
+  const pc = card(h('div', { class: 'cardhead' }, h('h2', { text: dbl ? 'Teams' : 'Players' }), h('span', { class: 'count', id: 'seatCount', text: n + ' / 16' })),
+    h('p', { class: 'dim', text: why || (dbl ? (n / 2) + ' teams. ' : n + ' players. ') + 'Ready!' }), list,
+    host && dbl ? h('div', { class: 'row' }, btn('Shuffle teams', hostShuffleTeams, { kind: 'small ghost', id: 'shuffleBtn' }), h('span', { class: 'hint', text: TSEL.a ? 'Now tap the player to swap with.' : 'Tap two players to swap them.' })) : null);
+  const vs = viewers();
+  if (vs.length) pc.appendChild(h('p', { class: 'viewline', id: 'viewLine' }, icon('eye', 16), h('span', { text: 'Watching: ' + vs.join(', ') })));
+  if (!me && !host) pc.appendChild(h('div', { class: 'sitbox' }, h('input', { id: 'sitName', type: 'text', maxlength: '14', placeholder: 'Your name', value: S.name, oninput: function (e) { S.name = e.target.value; } }),
+    btn('Enter the tournament', function () { if (!cleanName(S.name)) { setErr('Type your name first.'); return; } Net.sit(S.name); }, { kind: 'primary', id: 'sitBtn', disabled: n >= 16 })));
+  if (me && !host) pc.appendChild(h('div', { class: 'row' }, btn('Just watch instead', function () { Net.watch(); }, { kind: 'ghost small', id: 'justWatch', icon: 'eye' })));
+  if (host && n < 16) pc.appendChild(h('div', { class: 'addbot' }, h('span', { class: 'lbl', text: 'Add a computer player' }),
+    h('div', { class: 'row' }, ['easy', 'normal', 'hard'].map(function (lv) { return btn('+ ' + lv[0].toUpperCase() + lv.slice(1), function () { hostAddBot(lv); }, { kind: 'small', id: 'addBot-' + lv }); }))));
+  const desc = (dbl ? 'Doubles' : 'Singles') + ' · ' + (tc.format === 'league' ? 'league (everyone plays everyone)' : 'knockout') + ' · every match best of 3 games to ' + tc.target + ' · two courts at once';
+  const nodes = [roomCard(), pc];
+  if (host) nodes.push(card(h('h3', { text: 'Tournament' }), modeSwitch(d),
+    seg('Event', 'tKind', [['singles', 'Singles'], ['doubles', 'Doubles']], tc.kind, function (v) { hostSetT({ kind: v }); }),
+    seg('Format', 'tFormat', [['knockout', 'Knockout'], ['league', 'League']], tc.format, function (v) { hostSetT({ format: v }); }),
+    seg('Points per game (win by 2)', 'tTarget', [[5, '5'], [10, '10'], [15, '15'], [21, '21']], tc.target, function (v) { hostSetT({ target: v }); }),
+    h('p', { class: 'hint', text: desc + '. Knockout gives byes when the numbers don’t fill the bracket.' }),
+    btn(why || 'Start the tournament', function () { hostStart(); }, { kind: 'primary big', id: 'startBtn', disabled: !!why }),
+    confirmBtn('close', 'Close court', 'Confirm: close court for everyone', function () { Net.leave(); })));
+  else nodes.push(card(h('p', { class: 'dim', id: 'waitHost', text: 'Tournament: ' + desc + '. ' + nameOf(d.hostId) + ' starts it.' }), confirmBtn('leave', 'Leave', 'Confirm: leave', function () { Net.leave(); })));
+  return nodes;
+}
+function tEntryName(T, id) { const e = id && T.entries.find(function (x) { return x.id === id; }); return e ? e.name : 'TBD'; }
+function myEntry(T) { return T.entries.find(function (e) { return e.members.indexOf(S.me) !== -1; }) || null; }
+function callLeft(c) { return c.callIn ? Math.max(0, Math.ceil((c.callAt - performance.now()) / 1000)) : 0; }
+function courtCard(d, c) {
+  const T = d.tour.t, A = tEntryName(T, c.a), B = tEntryName(T, c.b), host = S.isHost;
+  const box = h('div', { class: 'tcourt' + (c.live ? ' live' : ''), id: 'tcourt' + c.n }, h('div', { class: 'tch' }, h('b', { text: 'Court ' + c.n }), c.round ? h('span', { class: 'dim', text: c.round }) : null));
+  if (!c.fid) { box.appendChild(h('p', { class: 'dim', text: T.done ? 'Done' : 'Free' })); return box; }
+  if (!c.live) { box.appendChild(h('p', { class: 'tnext' }, h('b', { text: A + ' v ' + B }), h('span', { class: 'cd', 'data-cd': c.n, text: ' starts in ' + callLeft(c) + 's' }))); return box; }
+  const L = c.live;
+  box.appendChild(h('div', { class: 'tlive' },
+    h('div', { class: 'tlr s0' }, h('span', { class: 'tn', text: A }), h('span', { class: 'tg', text: String(L.gamesWon[0]) }), h('span', { class: 'tp', text: L.phase === 'over' ? '' : String(L.score[0]) })),
+    h('div', { class: 'tlr s1' }, h('span', { class: 'tn', text: B }), h('span', { class: 'tg', text: String(L.gamesWon[1]) }), h('span', { class: 'tp', text: L.phase === 'over' ? '' : String(L.score[1]) }))));
+  box.appendChild(h('p', { class: 'hint', text: L.phase === 'over' ? 'Finished' : 'Game ' + L.gameNo + ' in progress · games won, then points' }));
+  const row = h('div', { class: 'row' }, L.phase !== 'over' ? btn('Watch', function () { Net.view(c.n); }, { kind: 'small primary', id: 'watch' + c.n, icon: 'eye' }) : null);
+  if (host && L.phase !== 'over') { row.appendChild(confirmBtn('wo' + c.n + 'a', 'Award to ' + A, 'Confirm walkover', function () { hostWalkover(c.fid, c.a); }, 'small')); row.appendChild(confirmBtn('wo' + c.n + 'b', 'Award to ' + B, 'Confirm walkover', function () { hostWalkover(c.fid, c.b); }, 'small')); }
+  box.appendChild(row);
+  return box;
+}
+function fixtureBox(T, f) {
+  const side = function (id, k) { return h('div', { class: 'fxr' + (f.winner && f.winner === id ? ' won' : '') + (myEntry(T) && myEntry(T).id === id ? ' me' : '') }, h('span', { class: 'tn', text: id ? tEntryName(T, id) : (f.bye && k ? 'bye' : 'TBD') }),
+    h('span', { class: 'fxg', text: f.games.map(function (g) { return k ? g[1] : g[0]; }).join(' ') })); };
+  return h('div', { class: 'fx ' + f.status, 'data-fid': f.id }, side(f.a, 0), side(f.b, 1),
+    f.status === 'live' ? h('span', { class: 'fxbadge', text: 'Court ' + f.court }) : f.walkover ? h('span', { class: 'fxbadge', text: 'walkover' }) : null);
+}
+function bracketScreen(d) {
+  const T = d.tour.t, host = S.isHost, mine = myEntry(T);
+  const nodes = [];
+  const fmt = (T.kind === 'doubles' ? 'Doubles' : 'Singles') + ' ' + (T.format === 'league' ? 'league' : 'knockout') + ' · best of 3 to ' + d.tcfg.target;
+  if (T.done) nodes.push(h('section', { class: 'card winner', id: 'champCard' }, icon('trophy', 44), h('p', { class: 'ov-k', text: 'Champion' + (T.kind === 'doubles' ? 's' : '') }),
+    h('h2', { class: 'ov-t', id: 'champion', text: tEntryName(T, T.champion) + (mine && mine.id === T.champion ? ' (you!)' : '') }), h('p', { class: 'hint', text: fmt }),
+    host ? h('div', { class: 'ovbtns' }, btn('Back to lobby', hostToLobby, { kind: 'primary', id: 'lobbyBtn' })) : h('p', { class: 'hint', text: 'Waiting for ' + nameOf(d.hostId) + '…' })));
+  // you're up
+  const up = mine && d.tour.courts.find(function (c) { return c.fid && !c.live && (c.a === mine.id || c.b === mine.id); });
+  if (up) nodes.push(h('div', { class: 'banner mine', id: 'upBanner' }, h('b', { text: 'You’re up on court ' + up.n + '! ' }), h('span', { class: 'cd', 'data-cd': up.n, text: 'Starts in ' + callLeft(up) + 's' })));
+  if (!T.done) nodes.push(card(h('div', { class: 'cardhead' }, h('h2', { text: 'Courts' }), h('span', { class: 'dim', text: fmt })), h('div', { class: 'tcourts' }, d.tour.courts.map(function (c) { return courtCard(d, c); }))));
+  if (T.format === 'league') {
+    const st2 = d.tour.standings || [];
+    nodes.push(card(h('h3', { text: 'Table' }), h('div', { class: 'tablewrap' }, h('table', { class: 'sumtab', id: 'leagueTable' },
+      h('thead', {}, h('tr', {}, h('th', { text: '#' }), h('th', { class: 'pn', text: T.kind === 'doubles' ? 'Team' : 'Player' }), ['P', 'W', 'L', 'Games', 'Pts ±'].map(function (x) { return h('th', { text: x }); }))),
+      h('tbody', {}, st2.map(function (r, i) { return h('tr', { class: mine && mine.id === r.id ? 'me' : '' }, h('td', { text: String(i + 1) }), h('td', { class: 'pn', text: r.name }), h('td', { text: String(r.played) }), h('td', { class: 'b', text: String(r.won) }), h('td', { text: String(r.lost) }), h('td', { text: r.gw + '–' + r.gl }), h('td', { text: (r.pw - r.pl > 0 ? '+' : '') + (r.pw - r.pl) })); }))))));
+    nodes.push(card(h('h3', { text: 'Matches' }), h('div', { class: 'fxlist', id: 'fixtures' }, T.fixtures.map(function (f) { return fixtureBox(T, f); }))));
+  } else {
+    const rounds = []; T.fixtures.forEach(function (f) { (rounds[f.round] = rounds[f.round] || []).push(f); });
+    nodes.push(card(h('h3', { text: 'Bracket' }), h('div', { class: 'bracket', id: 'bracket' }, rounds.map(function (fs) {
+      return h('div', { class: 'bround' }, h('div', { class: 'lbl', text: fs[0].roundName }), fs.filter(function (f) { return !(f.bye && f.round === 0) || true; }).map(function (f) { return fixtureBox(T, f); }));
+    }))));
+  }
+  if (host && !T.done) nodes.push(card(confirmBtn('endT', 'End tournament', 'Confirm: end the tournament', hostEndTour)));
+  if (!host) nodes.push(card(confirmBtn('leave', 'Leave', 'Confirm: leave', function () { Net.leave(); })));
+  return nodes;
+}
+/* the countdowns tick without a full re-render */
+setInterval(function () {
+  const d = S.st; if (!d || !d.tour) return;
+  document.querySelectorAll('[data-cd]').forEach(function (el) { const c = d.tour.courts[Number(el.getAttribute('data-cd')) - 1]; if (c) el.textContent = el.textContent.replace(/\d+s/, callLeft(c) + 's'); });
+}, 500);
+function tourBar(d, m) {
+  if (!d.tour) return null;
+  const playing = m.players.some(function (p) { return p.id === S.me && !p.left; });
+  const other = d.view === 1 ? 2 : 1, oc = d.tour.courts[other - 1];
+  return h('div', { class: 'tourbar', id: 'tourBar' }, h('b', { text: 'Court ' + d.view }), h('span', { class: 'dim', text: (m.round || '') + ' · best of 3' }),
+    !playing || m.phase === 'over' ? btn('Bracket', function () { Net.view(0); }, { kind: 'small ghost', id: 'toBracket' }) : null,
+    !playing && oc && oc.live && oc.live.phase !== 'over' ? btn('Court ' + other, function () { Net.view(other); }, { kind: 'small ghost', id: 'toCourt' + other }) : null);
 }
 
 /* ---------- game ---------- */
@@ -4562,7 +5007,7 @@ function scoreBar(m) {
   };
   const me = m.players.find(function (p) { return p.id === S.me; });
   return h('div', { class: 'scorebar', id: 'scorebar' }, side(me && me.side === 1 ? 1 : 0),
-    h('div', { class: 'sbmid' }, h('button', { type: 'button', class: 'gearbtn', id: 'gearBtn', 'aria-label': 'Controls and settings', onclick: function () { openCtl(true); } }, icon('gear', 18)), h('span', { text: 'to ' + m.cfg.target })), side(me && me.side === 1 ? 0 : 1));
+    h('div', { class: 'sbmid' }, h('button', { type: 'button', class: 'gearbtn', id: 'gearBtn', 'aria-label': 'Controls and settings', onclick: function () { openCtl(true); } }, icon('gear', 18)), h('span', { text: 'to ' + m.cfg.target }), (m.cfg.games || 1) > 1 ? h('span', { class: 'sbg', id: 'gamesWon', text: 'G' + (m.gameNo || 1) + ' · ' + (m.gamesWon || [0, 0])[me && me.side === 1 ? 1 : 0] + '–' + (m.gamesWon || [0, 0])[me && me.side === 1 ? 0 : 1] }) : null), side(me && me.side === 1 ? 0 : 1));
 }
 function banner(m) {
   const me = m.players.find(function (p) { return p.id === S.me && !p.left; });
@@ -4571,6 +5016,10 @@ function banner(m) {
     const why = { in: 'Winner!', out: 'Out!', net: 'Into the net!', serve: 'Serve fault!' }[lp.reason] || '';
     const who = m.players.filter(function (p) { return p.side === lp.side; }).map(function (p) { return p.name; }).join(' & ');
     return h('div', { class: 'banner ' + (me ? (won ? 'good' : 'bad') : ''), id: 'pointBanner' }, h('b', { text: why }), h('span', { text: ' Point ' + who + ' · ' + m.score[me && me.side === 1 ? 1 : 0] + '–' + m.score[me && me.side === 1 ? 0 : 1] + (lp.hits > 6 ? ' · ' + lp.hits + '-shot rally' : '') }));
+  }
+  if (m.phase === 'interval' && m.lastGame) {
+    const who = m.players.filter(function (p) { return p.side === m.lastGame.side; }).map(function (p) { return p.name; }).join(' & ');
+    return h('div', { class: 'banner hot', id: 'gameBanner' }, h('b', { text: 'Game ' + m.lastGame.no + ' to ' + who + ' (' + m.lastGame.score.join('–') + '). ' }), h('span', { text: 'Games ' + m.gamesWon.join('–') + '. Next game coming up…' }));
   }
   if (m.phase === 'serve') {
     if (me && m.server === me.id) return h('div', { class: 'banner mine', id: 'serveBanner' }, h('b', { text: 'Your serve. ' }), h('span', { text: 'Clear = high · Drop = short · Smash = flick' }));
@@ -4589,7 +5038,7 @@ function gameScreen() {
   const ov = h('div', { class: 'courtov' }, banner(m));
   const old = wrap.querySelector('.courtov'); if (old) old.remove();
   wrap.appendChild(ov);
-  const nodes = [scoreBar(m)];
+  const nodes = [tourBar(st(), m), scoreBar(m)];
   // the stage (court + joystick) is built once and never moved: moving it would cancel a finger that's still on the joystick
   if (!GAME.stage) GAME.stage = h('div', { class: 'stage', id: 'stage' });
   const stage = GAME.stage;
@@ -4603,14 +5052,14 @@ function gameScreen() {
   tools.push(h('div', { class: 'reacts' }, REACTIONS.map(function (e) { return h('button', { type: 'button', class: 'react', 'aria-label': 'React ' + e, onclick: function () { Net.react(e); } }, e); })));
   if (me && touchy()) tools.push(h('p', { class: 'runhint', text: 'Drag on the left side to run' }));
   if (me) tools.push(h('div', { class: 'energy', 'aria-label': 'Your energy' }, h('span', { class: 'elbl', text: 'Energy' }), h('span', { class: 'ebar' }, h('span', { class: 'efill hi', id: 'myEnergy' }))));
-  if (!me) tools.push(h('p', { class: 'watching', id: 'watching', text: '👁 You’re watching. You can join when this game ends.' }));
+  if (!me) tools.push(h('p', { class: 'watching', id: 'watching', text: st().tour ? '👁 Watching court ' + st().view + '.' : '👁 You’re watching. You can join when this game ends.' }));
   const ctl = [h('button', { type: 'button', class: 'btn small ghost', id: 'ctlBtn', 'aria-expanded': OPEN.ctl ? 'true' : 'false', onclick: function () { openCtl(!OPEN.ctl); } }, '⚙ Controls'), h('button', { type: 'button', class: 'btn small ghost', id: 'guideBtn', 'aria-pressed': S.guide ? 'true' : 'false', onclick: function () { S.guide = !S.guide; store('guide', S.guide ? '1' : '0'); render(); } }, 'Landing guide: ' + (S.guide ? 'on' : 'off'))];
   if (me) {
     const used = (m.breaks && m.breaks[S.me]) || 0, left = BD.BREAKS - used;
     const ok = !m.paused && (m.phase === 'point' || m.phase === 'serve') && left > 0;
     ctl.unshift(h('button', { type: 'button', class: 'btn small', id: 'breakBtn', disabled: !ok, title: 'Pause between points', onclick: function () { Net.pause(); } }, '🥤 Break' + (left < BD.BREAKS ? ' (' + left + ' left)' : '')));
   }
-  if (S.isHost && !S.local) ctl.push(confirmBtn('end', 'End game', 'Confirm: end game', hostEndGame, 'small'));
+  if (S.isHost && !S.local && !st().tour) ctl.push(confirmBtn('end', 'End game', 'Confirm: end game', hostEndGame, 'small'));
   if (S.local) ctl.push(confirmBtn('quit', 'Quit practice', 'Confirm: quit', function () { hostClose(); }, 'small'));
   if (!S.isHost) ctl.push(confirmBtn('leave', 'Leave', 'Confirm: leave', function () { Net.leave(); }, 'small'));
   tools.push(h('div', { class: 'row ctl' }, ctl));
@@ -4625,7 +5074,8 @@ function overScreen(m) {
   const w = m.winner;
   const winners = w === 0 || w === 1 ? m.players.filter(function (p) { return p.side === w; }).map(function (p) { return p.name; }).join(' & ') : '';
   const buttons = [];
-  if (S.isHost) { buttons.push(btn(S.local ? 'Play again' : 'Rematch', hostRematch, { kind: 'primary big', id: 'rematchBtn' })); buttons.push(btn(S.local ? 'Back home' : 'Back to lobby', hostToLobby, { kind: 'ghost', id: 'lobbyBtn' })); }
+  if (st().tour) buttons.push(h('p', { class: 'hint', text: 'Result recorded. The next match on this court is called in a few seconds.' }), btn('Back to bracket', function () { Net.view(0); }, { kind: 'primary', id: 'toBracket2' }));
+  else if (S.isHost) { buttons.push(btn(S.local ? 'Play again' : 'Rematch', hostRematch, { kind: 'primary big', id: 'rematchBtn' })); buttons.push(btn(S.local ? 'Back home' : 'Back to lobby', hostToLobby, { kind: 'ghost', id: 'lobbyBtn' })); }
   else {
     buttons.push(h('p', { class: 'hint', text: 'Waiting for ' + nameOf(st().hostId) + ' to start the next game…' }));
     if (!me && S.st.roster.length < 4) buttons.push(btn('Play next game', function () { Net.sit(cleanName(S.name) || 'Player'); }, { kind: 'primary', id: 'sitNext' }));
@@ -4634,7 +5084,8 @@ function overScreen(m) {
   const head = h('section', { class: 'card winner' + (w === 0 || w === 1 ? ' s' + w : ''), id: 'overCard' }, icon('trophy', 44),
     h('p', { class: 'ov-k', text: 'Game over' }),
     h('h2', { class: 'ov-t', id: 'winner', text: w === null || w === undefined ? 'Game ended' : winners + (me && me.side === w ? ' (you!)' : '') + ' win' + (winners.indexOf('&') !== -1 ? '' : 's') + '!' }),
-    h('div', { class: 'finalscore' }, [0, 1].map(function (s) { return h('div', { class: 'fs s' + s }, h('span', { class: 'tname', text: SIDES[s].name }), h('span', { class: 'tscore', text: String(m.score[s]) })); })),
+    h('div', { class: 'finalscore' }, [0, 1].map(function (s) { return h('div', { class: 'fs s' + s }, h('span', { class: 'tname', text: SIDES[s].name }), h('span', { class: 'tscore', text: String((m.cfg.games || 1) > 1 ? (m.gamesWon || [0, 0])[s] : m.score[s]) })); })),
+    (m.games || []).length > 1 || m.walkover ? h('p', { class: 'gamescores', id: 'gameScores', text: m.walkover ? 'Walkover' : 'Games: ' + m.games.map(function (g) { return g.join('–'); }).join(', ') }) : null,
     h('p', { class: 'hint', text: sum.rallies + ' rallies · longest ' + sum.longest + ' shots' }),
     h('div', { class: 'ovbtns' }, buttons));
   const table = h('table', { class: 'sumtab', id: 'summaryTable' },
@@ -4650,10 +5101,12 @@ function overScreen(m) {
 function roomScreen() {
   const d = st();
   if (!d) return [S.room ? roomCard() : null, card(h('p', { class: 'dim', id: 'loading', text: S.conn === 'failed' ? 'Could not join this court.' : 'Connecting to court ' + S.room + '…' }), btn('Back', function () { Net.leave(); }, { kind: 'ghost', id: 'backHome' }))].filter(Boolean);
+  if (d.tour && (d.tour.t.done || !d.view || !d.match)) return bracketScreen(d);
   if (!d.match) return S.local ? [card(h('p', { class: 'dim', text: 'Starting…' }))] : lobbyScreen();
   return gameScreen();
 }
 onStateHook = function (prev, d) {
+  if (d.tour) d.tour.courts.forEach(function (c) { c.callAt = performance.now() + (c.callIn || 0); });
   const pm = prev && prev.match, m = d.match;
   if (m && pm && pm.id === m.id && pm.phase !== 'over' && m.phase === 'over') SFX.win();
   if (m && (!pm || pm.id !== m.id)) setTimeout(function () { window.scrollTo(0, 0); }, 0);

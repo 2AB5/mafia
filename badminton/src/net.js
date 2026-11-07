@@ -16,10 +16,23 @@ const KIND_CODE = ['', 'air', 'clear', 'lift', 'drop', 'net', 'smash', 'drive', 
 
 /* ================= HOST ================= */
 const H = {
-  local: false, peer: null, room: '', myId: '', myToken: '', roster: [], cfg: BD.defaultConfig(), match: null,
+  local: false, peer: null, room: '', myId: '', myToken: '', roster: [], cfg: BD.defaultConfig(),
   conns: new Map(), loop: null, hb: null, sendT: null, attempt: 0, fresh: true,
-  acc: 0, last: 0, hist: [], frameAt: 0, evSent: 0, botMem: {}, lastPhase: '', lastScore: '', mvAt: {}
+  acc: 0, last: 0, mvAt: {},
+  // tournaments: two courts can run at once; quick matches use court 1
+  mode: 'quick', tcfg: { kind: 'singles', format: 'knockout', target: 10 }, teams: [], tour: null, view: 1, courts: null
 };
+const RESULT_MS = 8000, CALL_MS = 8000;
+function newCourt(n) { return { n: n, match: null, hist: [], evSent: 0, botMem: {}, frameAt: 0, key: '', fid: null, callAt: 0, reported: false, freeAt: 0 }; }
+H.courts = [null, newCourt(1), newCourt(2)];
+// H.match is the match on the court this screen is showing (court 1 for quick matches)
+Object.defineProperty(H, 'match', { get: function () { const c = H.courts[H.view]; return c ? c.match : null; }, set: function (v) { H.courts[1].match = v; H.view = 1; } });
+function courtOf(pid) { for (let c = 1; c <= 2; c++) { const m = H.courts[c].match; if (m && m.phase !== 'over' && m.players.some(function (p) { return p.id === pid && !p.left; })) return H.courts[c]; } return null; }
+function matchOf(pid) { const c = courtOf(pid); return c ? c.match : null; }
+function busyNow() { return H.tour ? !H.tour.done : !!(H.courts[1].match && H.courts[1].match.phase !== 'over'); }
+function seatLimit() { return H.mode === 'tour' ? TR.MAX_ENTRIES : 4; }
+/* which court a connection sees: the one they're playing on, else what they picked (0 = the bracket) */
+function viewOf(pid, chosen) { const c = courtOf(pid); if (c) return c.n; if (!H.tour) return 1; return chosen === 1 || chosen === 2 ? chosen : 0; }
 function hostUniqueName(nm, exceptId) {
   const taken = {};
   H.roster.forEach(function (r) { if (r.id !== exceptId) taken[r.name.toLowerCase()] = true; });
@@ -41,9 +54,15 @@ function hostCreate(name) {
 function hostResume(saved) {
   H.local = false; S.local = false;
   H.room = saved.room; H.myId = saved.myId; H.myToken = saved.myToken; H.roster = saved.roster || [];
-  H.cfg = BD.normalizeConfig(saved.cfg); H.match = saved.match || null; H.fresh = false; H.attempt = 0;
-  // pick the rally up again with a fresh serve
-  if (H.match && H.match.phase !== 'over') { H.match.phase = 'point'; H.match.phaseT = BD.POINT_PAUSE - 1.5; }
+  H.cfg = BD.normalizeConfig(saved.cfg); H.fresh = false; H.attempt = 0;
+  H.mode = saved.mode === 'tour' ? 'tour' : 'quick'; H.tcfg = saved.tcfg || H.tcfg; H.teams = saved.teams || [];
+  H.courts = [null, newCourt(1), newCourt(2)]; H.view = 1;
+  H.tour = saved.tour || null;
+  if (H.tour && saved.courts) saved.courts.forEach(function (sc, i) { const c = H.courts[i + 1]; c.fid = sc.fid; c.reported = sc.reported; c.match = sc.match; c.callAt = Date.now() + 3000; c.freeAt = Date.now() + 3000; c.evSent = sc.match ? sc.match.evN || 0 : 0; });
+  else H.courts[1].match = saved.match || null;
+  if (H.tour) H.view = 0;
+  // pick each rally up again with a fresh serve
+  [1, 2].forEach(function (n) { const m = H.courts[n].match; if (m && m.phase !== 'over') { m.phase = 'point'; m.phaseT = BD.POINT_PAUSE - 1.5; m.paused = null; } });
   hostBoot();
 }
 /* practice: you plus computer players, all on this phone */
@@ -109,7 +128,7 @@ function hostHeartbeat() {
   const now = Date.now();
   H.conns.forEach(function (rec, key) { if (now - rec.last > 20000) { try { rec.conn.close(); } catch (e) { /* ignore */ } H.conns.delete(key); hostPublishSoon(); } });
 }
-function inMatch(pid) { return !!(H.match && pid && H.match.players.some(function (p) { return p.id === pid && !p.left; })); }
+function inMatch(pid) { return !!(pid && courtOf(pid)); }
 function hostHandle(rec, d) {
   if (!d || typeof d !== 'object' || typeof d.t !== 'string') return;
   if (d.t === 'ping') { hostSend(rec, { t: 'pong', c: d.c, h: H.match ? H.match.t : 0 }); return; }
@@ -126,11 +145,11 @@ function hostHandle(rec, d) {
   }
   if (!rec.token) return;
   if (d.t === 'sit') {
-    if (H.match && H.match.phase !== 'over') { hostSend(rec, { t: 'err', msg: 'A game is on. You can join when it ends.' }); return; }
+    if (busyNow()) { hostSend(rec, { t: 'err', msg: H.tour ? 'A tournament is on. You can watch, and join the next one.' : 'A game is on. You can join when it ends.' }); return; }
     let r = H.roster.find(function (x) { return x.token === rec.token; });
     if (r) r.name = hostUniqueName(d.name, r.id);
     else {
-      if (H.roster.length >= 4) { hostSend(rec, { t: 'err', msg: 'The court is full (4 players), so you’re watching. You can join when a spot opens.' }); return; }
+      if (H.roster.length >= seatLimit()) { hostSend(rec, { t: 'err', msg: H.mode === 'tour' ? 'The tournament is full (16 players).' : 'The court is full (4 players), so you’re watching. You can join when a spot opens.' }); return; }
       const c = sideCounts();
       r = { id: 'p' + randId(7), token: rec.token, name: '', side: c[0] <= c[1] ? 0 : 1 };
       if ((d.side === 0 || d.side === 1) && c[d.side] < 2) r.side = d.side;
@@ -142,8 +161,9 @@ function hostHandle(rec, d) {
     hostChanged();
     return;
   }
+  if (d.t === 'view') { rec.view = Number(d.c) || 0; hostSend(rec, hostSnapshot(rec.pid, rec)); return; }
   if (d.t === 'leave') {
-    if ((H.match && H.match.phase !== 'over') || !rec.pid || rec.pid === H.myId) return;
+    if (busyNow() || !rec.pid || rec.pid === H.myId) return;
     const gone = rec.pid;
     H.roster = H.roster.filter(function (x) { return x.id !== gone; });
     H.conns.forEach(function (o) { if (o.pid === gone) o.pid = null; });
@@ -154,23 +174,45 @@ function hostHandle(rec, d) {
   if (!rec.pid) return;
   if (d.t === 'side') { hostSetSide(rec.pid, d.side); return; }
   if (d.t === 'mv') { hostMove(rec.pid, Number(d.x), Number(d.y)); return; }
-  if (d.t === 'brk') { if (H.match && BD.callBreak(H.match, rec.pid)) hostChanged(); return; }
-  if (d.t === 'res') { if (H.match && BD.resumeBreak(H.match, rec.pid)) hostChanged(); return; }
+  if (d.t === 'brk') { const m = matchOf(rec.pid); if (m && BD.callBreak(m, rec.pid)) hostChanged(); return; }
+  if (d.t === 'res') { const m = matchOf(rec.pid); if (m && BD.resumeBreak(m, rec.pid)) hostChanged(); return; }
   if (d.t === 'hit') { hostMove(rec.pid, Number(d.x), Number(d.y)); hostHit(rec.pid, d.b, d.a, Number(d.vt)); }
 }
 function sideCounts() { const c = [0, 0]; H.roster.forEach(function (r) { c[r.side]++; }); return c; }
 
 /* ---------- lobby control ---------- */
-function hostSetCfg(patch) { if (H.match && H.match.phase !== 'over') return; H.cfg = BD.normalizeConfig(Object.assign({}, H.cfg, patch)); hostChanged(); }
+function hostSetCfg(patch) { if (busyNow()) return; H.cfg = BD.normalizeConfig(Object.assign({}, H.cfg, patch)); hostChanged(); }
+function hostSetMode(mode) { if (busyNow()) return; H.mode = mode === 'tour' ? 'tour' : 'quick'; if (H.tour && H.tour.done) H.tour = null; hostChanged(); }
+function hostSetT(patch) {
+  if (busyNow()) return;
+  const t = Object.assign({}, H.tcfg, patch);
+  H.tcfg = { kind: t.kind === 'doubles' ? 'doubles' : 'singles', format: t.format === 'league' ? 'league' : 'knockout', target: [2, 3, 5, 10, 15, 21].indexOf(t.target) !== -1 ? t.target : 10 };
+  hostChanged();
+}
+/* doubles teams: kept pairs, plus anyone new paired up in the order they joined */
+function teamsNow() {
+  const ids = H.roster.map(function (r) { return r.id; }), used = {}, pairs = [];
+  (H.teams || []).forEach(function (t) { if (t.length === 2 && ids.indexOf(t[0]) !== -1 && ids.indexOf(t[1]) !== -1 && !used[t[0]] && !used[t[1]]) { pairs.push(t.slice()); used[t[0]] = used[t[1]] = true; } });
+  const rest = ids.filter(function (id) { return !used[id]; });
+  for (let i = 0; i + 1 < rest.length; i += 2) pairs.push([rest[i], rest[i + 1]]);
+  return { pairs: pairs, spare: rest.length % 2 ? rest[rest.length - 1] : null };
+}
+function hostShuffleTeams() { if (busyNow()) return; H.teams = TR.pairUp(H.roster.map(function (r) { return r.id; }), secureRng).teams; hostChanged(); }
+function hostSwapPlayers(a, b) {
+  if (busyNow() || a === b) return;
+  const t = teamsNow(); H.teams = t.pairs.map(function (p) { return p.map(function (x) { return x === a ? b : x === b ? a : x; }); });
+  if (t.spare === a || t.spare === b) H.teams = H.teams.map(function (p) { return p.map(function (x) { return x === (t.spare === a ? b : a) ? t.spare : x; }); });
+  hostChanged();
+}
 function hostSetSide(id, side) {
-  if ((H.match && H.match.phase !== 'over') || (side !== 0 && side !== 1)) return;
+  if (busyNow() || (side !== 0 && side !== 1)) return;
   const r = H.roster.find(function (x) { return x.id === id; });
   if (!r || r.side === side) return;
   if (sideCounts()[side] >= 2) { if (id === H.myId) toast('That side already has 2 players.'); return; }
   r.side = side; hostChanged();
 }
 function hostAddBot(level) {
-  if ((H.match && H.match.phase !== 'over') || H.roster.length >= 4) return;
+  if (busyNow() || H.roster.length >= seatLimit()) return;
   const used = {}; H.roster.forEach(function (r) { used[r.name] = true; });
   const free = BD.BOT_NAMES.filter(function (n) { return !used[n]; });
   const c = sideCounts();
@@ -178,7 +220,7 @@ function hostAddBot(level) {
   hostChanged();
 }
 function hostCycleBot(id) {
-  if (H.match && H.match.phase !== 'over') return;
+  if (busyNow()) return;
   const r = H.roster.find(function (x) { return x.id === id && x.bot; }); if (!r) return;
   const order = ['easy', 'normal', 'hard']; r.bot = order[(order.indexOf(r.bot) + 1) % 3]; hostChanged();
 }
@@ -189,27 +231,79 @@ function startProblem() {
   if (c[0] > 2 || c[1] > 2) return 'Two players per side at most.';
   return '';
 }
+function tourProblem() {
+  const n = H.roster.length;
+  if (H.tcfg.kind === 'doubles') {
+    if (n < 4) return 'Doubles needs at least 4 players (2 teams).';
+    if (n % 2) return 'Odd number of players: add a computer player so everyone has a partner.';
+  } else if (n < 2) return 'You need at least 2 players.';
+  return '';
+}
+function hostStartTour() {
+  const why = tourProblem(); if (why) { setErr(why); return; }
+  const nm = function (id) { const r = H.roster.find(function (x) { return x.id === id; }); return r ? r.name : 'Player'; };
+  const entries = H.tcfg.kind === 'doubles'
+    ? teamsNow().pairs.map(function (p, i) { return { id: 'e' + i + p[0], name: nm(p[0]) + ' & ' + nm(p[1]), members: p }; })
+    : H.roster.map(function (r) { return { id: 'e' + r.id, name: r.name, members: [r.id] }; });
+  try { H.tour = TR.create({ entries: entries, format: H.tcfg.format, kind: H.tcfg.kind, courts: 2, rng: secureRng }); } catch (e) { setErr(e.message); return; }
+  H.courts = [null, newCourt(1), newCourt(2)]; H.view = 0; H.mvAt = {};
+  View.reset();
+  hostTourAssign(3000);
+  hostChanged();
+}
+/* put the next matches on free courts, with a short "you're up" countdown */
+function hostTourAssign(delay) {
+  const t = H.tour; if (!t || t.done) return;
+  TR.assign(t).forEach(function (f) { const c = H.courts[f.court]; c.fid = f.id; c.callAt = Date.now() + (delay === undefined ? CALL_MS : delay); c.reported = false; });
+}
+function hostTourCreateMatch(c) {
+  const t = H.tour, f = TR.byId(t, c.fid);
+  const rosterOf = function (id) { return H.roster.find(function (r) { return r.id === id; }) || { id: id, name: 'Player' }; };
+  const side = function (eid, s) { return TR.entry(t, eid).members.map(function (id) { const r = rosterOf(id); return { id: r.id, name: r.name, side: s, bot: r.bot }; }); };
+  try { c.match = BD.newMatch({ players: side(f.a, 0).concat(side(f.b, 1)), cfg: { target: H.tcfg.target, games: 3 }, rng: secureRng }); }
+  catch (e) { console.warn(e); TR.walkover(t, f.id, f.a); c.fid = null; return; }
+  c.match.fid = f.id; c.match.court = c.n; c.match.round = f.roundName;
+  c.hist = []; c.evSent = c.match.evN || 0; c.botMem = {}; c.key = '';
+  const ids = c.match.players.map(function (p) { return p.id; });
+  if (ids.indexOf(H.myId) !== -1) { H.view = c.n; View.reset(); }
+  hostEach(function (rec) { if (ids.indexOf(rec.pid) !== -1) rec.view = c.n; });
+}
+function hostWalkover(fid, winner) {
+  const t = H.tour; if (!t) return;
+  const f = TR.byId(t, fid); if (!f || f.status === 'done') return;
+  const c = f.court ? H.courts[f.court] : null;
+  if (c && c.fid === fid && c.match && c.match.phase !== 'over') { c.match.phase = 'over'; c.match.winner = winner === f.a ? 0 : 1; c.match.walkover = true; }
+  TR.walkover(t, fid, winner);
+  if (c && c.fid === fid) { c.reported = true; c.freeAt = Date.now() + 2000; }
+  hostChanged();
+}
+function hostEndTour() { H.tour = null; H.courts = [null, newCourt(1), newCourt(2)]; H.view = 1; View.reset(); hostChanged(); }
+function hostView(c) { if (courtOf(H.myId)) return; H.view = c; View.reset(); hostPublish(); }
 function hostStart() {
+  if (H.mode === 'tour' && !H.local) { hostStartTour(); return; }
   const why = startProblem(); if (why) { setErr(why); return; }
   try {
     H.match = BD.newMatch({ players: H.roster.map(function (r) { return { id: r.id, name: r.name, side: r.side, bot: r.bot }; }), cfg: H.cfg, rng: secureRng });
   } catch (e) { setErr(e.message); return; }
-  H.hist = []; H.evSent = H.match.evN || 0; H.botMem = {}; H.acc = 0; H.last = performance.now(); H.mvAt = {};
+  const c1 = H.courts[1]; c1.hist = []; c1.evSent = H.match.evN || 0; c1.botMem = {}; c1.key = ''; c1.fid = null;
+  H.acc = 0; H.last = performance.now(); H.mvAt = {};
   View.reset();
   hostChanged();
 }
-function hostRematch() { if (!H.match || H.match.phase !== 'over') return; hostStart(); }
-function hostToLobby() { if (H.local) { hostClose(); return; } H.match = null; hostChanged(); }
+function hostRematch() { if (H.tour || !H.match || H.match.phase !== 'over') return; hostStart(); }
+function hostToLobby() { if (H.local) { hostClose(); return; } if (H.tour) { if (H.tour.done) hostEndTour(); return; } H.match = null; hostChanged(); }
 function hostRemove(id) {
   if (id === H.myId) return;
-  if (H.match && H.match.phase !== 'over') { BD.leave(H.match, id); }
+  const pm = matchOf(id);
+  if (pm) { BD.leave(pm, id); }
+  else if (busyNow()) return;
   else {
     H.roster = H.roster.filter(function (x) { return x.id !== id; });
     H.conns.forEach(function (rec) { if (rec.pid === id) { rec.pid = null; hostSend(rec, { t: 'kicked' }); } });
   }
   hostChanged();
 }
-function hostEndGame() { const m = H.match; if (!m || m.phase === 'over') return; m.phase = 'over'; m.winner = m.score[0] === m.score[1] ? null : m.score[0] > m.score[1] ? 0 : 1; hostChanged(); }
+function hostEndGame() { if (H.tour) return; const m = H.courts[1].match; if (!m || m.phase === 'over') return; m.phase = 'over'; m.winner = m.score[0] === m.score[1] ? null : m.score[0] > m.score[1] ? 0 : 1; hostChanged(); }
 function hostReact(name, e) {
   if (REACTIONS.indexOf(e) === -1) return;
   hostEach(function (rec) { hostSend(rec, { t: 'react', n: name, e: e }); });
@@ -218,60 +312,82 @@ function hostReact(name, e) {
 
 /* ---------- the real-time part ---------- */
 function hostMove(pid, x, y) {
-  const m = H.match; if (!m || !inMatch(pid)) return;
+  const m = matchOf(pid); if (!m) return;
   const now = performance.now(), dt = Math.min(0.25, (now - (H.mvAt[pid] || now - 33)) / 1000);
   H.mvAt[pid] = now;
   BD.moveTo(m, pid, x, y, dt);
 }
 function hostHit(pid, button, aim, vt) {
-  const m = H.match; if (!m || !inMatch(pid)) return;
+  const c = courtOf(pid); if (!c) return;
+  const m = c.match;
   if (['clear', 'drop', 'smash'].indexOf(button) === -1) return;
   const a = Array.isArray(aim) ? [Number(aim[0]) || 0, Number(aim[1]) || 0] : [0, 0];
   // rewind: try the shuttle as the player saw it (up to 0.3 s ago), newest first
   const from = isFinite(vt) ? Math.max(m.t - 0.3, vt - 0.06) : m.t - 0.12;
-  const past = H.hist.filter(function (h) { return h.t >= from; }).map(function (h) { return h.s; }).reverse();
+  const past = c.hist.filter(function (h) { return h.t >= from; }).map(function (h) { return h.s; }).reverse();
   BD.swing(m, pid, button, a, secureRng, past);
 }
 function hostTick() {
-  const m = H.match;
   const now = performance.now();
-  if (!m || (H.local && S.paused)) { H.last = now; return; }
-  H.acc += Math.min(250, now - H.last); H.last = now;
+  if (H.local && S.paused) { H.last = now; return; }
+  const wall = Date.now();
+  // tournament bookkeeping: start called matches, report finished ones, free courts
+  if (H.tour) for (let n = 1; n <= 2; n++) {
+    const c = H.courts[n];
+    if (c.fid && !c.reported && (!c.match || c.match.fid !== c.fid) && wall >= c.callAt) { hostTourCreateMatch(c); hostChanged(); }
+    if (c.match && c.match.fid === c.fid && c.match.phase === 'over' && !c.reported) {
+      c.reported = true; c.freeAt = wall + RESULT_MS;
+      const f = TR.byId(H.tour, c.fid);
+      if (f && f.status !== 'done') TR.report(H.tour, f.id, c.match.winner === 0 ? f.a : f.b, c.match.games || []);
+      hostChanged();
+    }
+    if (c.reported && c.fid && wall >= c.freeAt) { c.fid = null; hostTourAssign(); hostChanged(); }
+  }
+  let dtAcc = H.acc + Math.min(250, now - H.last); H.last = now;
   let steps = 0;
-  while (H.acc >= BD.DT * 1000 && steps < 40) {
-    H.acc -= BD.DT * 1000; steps++;
-    if (m.phase === 'over') { H.acc = 0; break; }
-    // the host's own figure follows its joystick
-    { const me = BD.playerOf(m, H.myId); if (me && !me.left && !window.__bdAuto) { const t = Input.target(m, me, BD.DT); if (t) BD.moveTo(m, H.myId, t[0], t[1], BD.DT); } }
-    if (steps % 2 === 1) m.players.forEach(function (p) {
-      const auto = p.id === H.myId && window.__bdAuto;
-      if ((!p.bot && !auto) || p.left) return;
-      if (auto) p.bot = window.__bdAuto;
-      const th = BD.botThink(m, p, secureRng, H.botMem[p.id] || (H.botMem[p.id] = {}));
-      BD.botMove(m, p, th, BD.DT * 2);
-      if (th.hit) BD.swing(m, p.id, th.hit.button, th.hit.aim, secureRng, []);
-      if (auto) p.bot = null;
-    });
-    BD.step(m, BD.DT, secureRng);
-    if (m.shuttle) { H.hist.push({ t: m.t, s: { x: m.shuttle.x, y: m.shuttle.y, z: m.shuttle.z, vx: m.shuttle.vx, vy: m.shuttle.vy, vz: m.shuttle.vz, held: m.shuttle.held } }); if (H.hist.length > 60) H.hist.splice(0, H.hist.length - 60); }
+  while (dtAcc >= BD.DT * 1000 && steps < 40) {
+    dtAcc -= BD.DT * 1000; steps++;
+    for (let n = 1; n <= 2; n++) {
+      const c = H.courts[n], m = c.match;
+      if (!m || m.phase === 'over') continue;
+      // the host's own figure follows its joystick
+      { const me = BD.playerOf(m, H.myId); if (me && !me.left && !window.__bdAuto) { const t = Input.target(m, me, BD.DT); if (t) BD.moveTo(m, H.myId, t[0], t[1], BD.DT); } }
+      if (steps % 2 === 1) m.players.forEach(function (p) {
+        const auto = p.id === H.myId && window.__bdAuto;
+        if ((!p.bot && !auto) || p.left) return;
+        if (auto) p.bot = window.__bdAuto;
+        const th = BD.botThink(m, p, secureRng, c.botMem[p.id] || (c.botMem[p.id] = {}));
+        BD.botMove(m, p, th, BD.DT * 2);
+        if (th.hit) BD.swing(m, p.id, th.hit.button, th.hit.aim, secureRng, []);
+        if (auto) p.bot = null;
+      });
+      BD.step(m, BD.DT, secureRng);
+      if (m.shuttle) { c.hist.push({ t: m.t, s: { x: m.shuttle.x, y: m.shuttle.y, z: m.shuttle.z, vx: m.shuttle.vx, vy: m.shuttle.vy, vz: m.shuttle.vz, held: m.shuttle.held } }); if (c.hist.length > 60) c.hist.splice(0, c.hist.length - 60); }
+    }
   }
-  // stream frames
-  if (now - H.frameAt >= FRAME_MS) {
-    H.frameAt = now;
-    const fr = hostFrame(m);
-    if (!H.local) hostEach(function (rec) { hostSend(rec, fr); });
-    View.frame(fr, true);
+  H.acc = steps >= 40 ? 0 : dtAcc;
+  // stream each court's frames to whoever is on or watching it
+  for (let n = 1; n <= 2; n++) {
+    const c = H.courts[n], m = c.match;
+    if (!m) continue;
+    if (now - c.frameAt >= FRAME_MS) {
+      c.frameAt = now;
+      const fr = hostFrame(m, c);
+      if (!H.local) hostEach(function (rec) { if (viewOf(rec.pid, rec.view) === n) hostSend(rec, fr); });
+      if (hostViewNow() === n) View.frame(fr, true);
+    }
+    const key = m.phase + ':' + m.score.join('-') + ':' + m.resetNo + ':' + (m.paused ? 'p' + (m.paused.count === null ? '' : 'c') : '') + ':' + (m.gameNo || 1);
+    if (key !== c.key) { c.key = key; hostChanged(); }
   }
-  const key = m.phase + ':' + m.score.join('-') + ':' + m.resetNo + ':' + (m.paused ? 'p' + (m.paused.count === null ? '' : 'c') : '');
-  if (key !== H.lastPhase) { H.lastPhase = key; hostChanged(); }
 }
+function hostViewNow() { const c = courtOf(H.myId); if (c) { H.view = c.n; return c.n; } return H.view; }
 function r3(v) { return Math.round(v * 1000) / 1000; }
-function hostFrame(m) {
-  const evs = m.events.filter(function (e) { return e.n > H.evSent; });
-  if (evs.length) H.evSent = evs[evs.length - 1].n;
+function hostFrame(m, c) {
+  const evs = m.events.filter(function (e) { return e.n > c.evSent; });
+  if (evs.length) c.evSent = evs[evs.length - 1].n;
   const s = m.shuttle || { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
   return {
-    t: 'f', ts: r3(m.t), ph: m.phase, r: m.resetNo, sv: m.server, lh: m.lastHitTeam, rh: m.rallyHits,
+    t: 'f', c: c.n, ts: r3(m.t), ph: m.phase, r: m.resetNo, sv: m.server, lh: m.lastHitTeam, rh: m.rallyHits,
     pz: m.paused ? [m.paused.by, Math.max(0, Math.round(m.paused.left)), m.paused.count === null ? -1 : Math.ceil(m.paused.count)] : null,
     s: [r3(s.x), r3(s.y), r3(s.z), r3(s.vx), r3(s.vy), r3(s.vz), s.held ? 1 : 0, m.landed ? 1 : 0],
     p: m.players.map(function (p) { return [r3(p.x), r3(p.y), Math.round(p.energy), Math.round(p.swing * 100), KIND_CODE.indexOf(p.swingKind || ''), p.hand === 'back' ? 1 : 0]; }),
@@ -283,8 +399,9 @@ let saveT = null;
 function hostSaveSoon() { if (!saveT) saveT = setTimeout(function () { saveT = null; hostSave(); }, 600); }
 function hostSave() {
   if (!S.isHost || !H.room || H.local) return;
-  const m = H.match ? Object.assign({}, H.match, { events: [] }) : null;
-  storeJSON('host', { room: H.room, myId: H.myId, myToken: H.myToken, roster: H.roster, cfg: H.cfg, match: m, savedAt: Date.now() });
+  const m = H.tour ? null : (H.courts[1].match ? Object.assign({}, H.courts[1].match, { events: [] }) : null);
+  storeJSON('host', { room: H.room, myId: H.myId, myToken: H.myToken, roster: H.roster, cfg: H.cfg, match: m, mode: H.mode, tcfg: H.tcfg, teams: H.teams,
+    tour: H.tour, courts: H.tour ? [1, 2].map(function (n) { const c = H.courts[n]; return { fid: c.fid, reported: c.reported, match: c.match ? Object.assign({}, c.match, { events: [] }) : null }; }) : null, savedAt: Date.now() });
 }
 function hostPublishSoon() { if (!H.sendT) H.sendT = setTimeout(hostPublish, 0); }
 function hostOnline() {
@@ -306,22 +423,34 @@ function slimMatch(m) {
   if (!m) return null;
   const c = Object.assign({}, m); c.events = []; c.log = m.log.slice(-6); return JSON.parse(JSON.stringify(c));
 }
-function hostSnapshot(pid) {
+function tourSummary() {
+  const t = H.tour; if (!t) return null;
+  const courts = [1, 2].map(function (n) {
+    const c = H.courts[n], m = c.match, f = c.fid ? TR.byId(t, c.fid) : null;
+    return { n: n, fid: c.fid, round: f ? f.roundName : '', a: f ? f.a : null, b: f ? f.b : null, callIn: c.fid && (!m || m.fid !== c.fid) ? Math.max(0, c.callAt - Date.now()) : 0,
+      live: m && f && m.fid === f.id ? { score: m.score.slice(), gamesWon: (m.gamesWon || [0, 0]).slice(), gameNo: m.gameNo || 1, phase: m.phase, winner: m.winner } : null };
+  });
+  return { t: JSON.parse(JSON.stringify(t)), courts: courts, standings: t.format === 'league' ? TR.standings(t) : null };
+}
+function hostSnapshot(pid, rec) {
   const on = hostOnline();
+  const view = rec ? viewOf(pid, rec.view) : hostViewNow();
+  const vm = view ? H.courts[view].match : null;
   return {
     t: 'state', you: pid || null, room: H.room, hostId: H.myId, local: H.local,
     roster: H.roster.map(function (r) { return { id: r.id, name: r.name, side: r.side, bot: r.bot || null, on: !!on[r.id] }; }),
-    cfg: H.cfg, match: slimMatch(H.match), viewers: H.local ? [] : hostViewers()
+    cfg: H.cfg, match: slimMatch(vm), view: view, viewers: H.local ? [] : hostViewers(),
+    mode: H.mode, tcfg: H.tcfg, teams: H.mode === 'tour' && H.tcfg.kind === 'doubles' ? teamsNow() : null, tour: tourSummary()
   };
 }
 function hostPublish() {
   H.sendT = null;
-  if (!H.local) H.conns.forEach(function (rec) { if (rec.token) hostSend(rec, hostSnapshot(rec.pid)); });
+  if (!H.local) H.conns.forEach(function (rec) { if (rec.token) hostSend(rec, hostSnapshot(rec.pid, rec)); });
   applyState(hostSnapshot(H.myId));
 }
 function hostClose() {
   try { if (H.peer) H.peer.destroy(); } catch (e) { /* ignore */ }
-  H.peer = null; H.conns.clear(); H.match = null;
+  H.peer = null; H.conns.clear(); H.courts = [null, newCourt(1), newCourt(2)]; H.view = 1; H.tour = null; H.mode = 'quick';
   clearInterval(H.loop); clearInterval(H.hb); H.loop = null; H.hb = null;
   if (!H.local) storeJSON('host', null);
   H.local = false; S.local = false; S.isHost = false;
@@ -434,7 +563,7 @@ function clientSendMove() {
 }
 function clientHandle(d) {
   if (!d || typeof d !== 'object') return;
-  if (d.t === 'f') { View.frame(d, false); return; }
+  if (d.t === 'f') { if (S.st && S.st.tour && d.c && d.c !== S.st.view) return; View.frame(d, false); return; }
   if (d.t === 'state') {
     applyState(d);
     if (S.me) S.wantSeat = false;
@@ -469,8 +598,9 @@ const Net = {
     if (S.isHost) { hostHit(H.myId, button, aim, View.renderTs()); return; }
     clientSend({ t: 'hit', b: button, a: [r3(aim[0]), r3(aim[1])], x: r3(me.x), y: r3(me.y), vt: r3(View.renderTs()) });
   },
-  pause: function () { if (S.isHost) { if (H.match && BD.callBreak(H.match, H.myId)) hostChanged(); } else clientSend({ t: 'brk' }); },
-  resume: function () { if (S.isHost) { if (H.match && BD.resumeBreak(H.match, H.myId)) hostChanged(); } else clientSend({ t: 'res' }); },
+  pause: function () { if (S.isHost) { const m = matchOf(H.myId); if (m && BD.callBreak(m, H.myId)) hostChanged(); } else clientSend({ t: 'brk' }); },
+  resume: function () { if (S.isHost) { const m = matchOf(H.myId); if (m && BD.resumeBreak(m, H.myId)) hostChanged(); } else clientSend({ t: 'res' }); },
+  view: function (c) { if (S.isHost) hostView(c); else clientSend({ t: 'view', c: c }); },
   react: function (e) { if (S.isHost) hostReact(S.name || 'Host', e); else clientSend({ t: 'react', e: e }); },
   side: function (s) { if (S.isHost) hostSetSide(H.myId, s); else clientSend({ t: 'side', side: s }); },
   watch: function () { S.wantSeat = false; S.watchOnly = true; if (S.room) store('watch.' + S.room, '1'); if (!S.isHost) clientSend({ t: 'leave' }); },

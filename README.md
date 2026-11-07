@@ -179,7 +179,8 @@ Top-down online badminton for 2 to 4 players: 1 v 1, 1 v 2 or 2 v 2. Anyone else
 - **Serves:** Clear = forehand high serve, Drop = backhand short serve, Smash = backhand flick serve. You serve from the right on an even score, into the diagonal box, and short serves must pass the short service line.
 - **Height meter:** a gauge beside the court shows how high the shuttle is. 🟢 is the smash zone (2 m and up, a jump smash above 2.5 m), 🟡 is for drives, drops and clears, and 🔴 is too low (lift it). The buttons relabel themselves, and the Smash button warns ⚠ when a smash would go into the net. Smashing from too low, or from deep without enough height, really can hit the tape.
 - **Energy:** running, jumping and smashing drain it, and standing still recovers it. Tired players run slower and smash softer. The solo player in 1 v 2 is a little quicker and recovers faster.
-- **Scoring:** rally points, first to 10 (5, 15 or 21 can be picked), win by 2, with 15 as the cap (target + 5).
+- **Scoring:** rally points, first to 10 (5, 15 or 21 can be picked), win by 2, with 15 as the cap (target + 5). Quick matches can be a single game, best of 3 or best of 5.
+- **🏆 Tournaments:** switch the lobby to Tournament and share the same link or QR. Up to 16 players can enter. Pick **Singles** (one entry per player) or **Doubles** (players are paired into teams; the host can shuffle or tap two players to swap them, and an odd player out needs a computer partner). Pick **Knockout** (byes are spread across the bracket when the numbers don't fill it) or **League** (everyone plays everyone, ranked by wins, then games, then points). Every match is best of 3 games. Two matches run at once on Court 1 and Court 2, and the next match is called with a countdown. Players waiting see the bracket or table with live scores and can watch either court. The host can award a walkover if someone can't play.
 - **Controls settings:** open them from the home page or from ⚙ in the score bar during a game (practice pauses while it's open). Touch joystick sensitivity is a 0–100 slider: Smooth (0–30), Balanced (31–70), Quick (71–99) and Instant (100, the original direct response). The default is 90. On a computer you can rebind every key: click an action, then press a key. Taken keys swap, choices are remembered, and Reset keys restores WASD + J K L.
 - **🥤 Hydration break:** between points, any player can pause the game for everyone, twice per game, for up to a minute. It's handy for changing controls. Anyone can tap Resume, and play restarts after a 3-second countdown.
 - **Touch screens:** during a game the page can't zoom, scroll or select text, so double taps and long presses on an iPad or phone don't get in the way.
@@ -189,7 +190,8 @@ Top-down online badminton for 2 to 4 players: 1 v 1, 1 v 2 or 2 v 2. Anyone else
 | Path | What it holds |
 | --- | --- |
 | `badminton/src/game.js` | Shuttle physics, shots, serves, rules, scoring, energy and the computer players, tested in Node |
-| `badminton/src/net.js` | Rooms, the host's 120 Hz game loop, frame streaming and hit lag compensation |
+| `badminton/src/tour.js` | Tournament scheduler: knockout with byes, league, two courts at once, tested in Node |
+| `badminton/src/net.js` | Rooms, the host's 120 Hz game loop for up to two courts, frame streaming and hit lag compensation |
 | `badminton/src/court.js` | Smoothing, local movement, controls and the court renderer with the height meter |
 | `badminton/src/ui.js` | Screens |
 | `badminton/index.html` | The built page (`node badminton/build.js`) |

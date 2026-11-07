@@ -1,6 +1,6 @@
 # Mafia · Night Table
 
-**Play: https://2ab5.github.io/mafia/** · Also here: **[Pen Fight](https://2ab5.github.io/mafia/penfight/)** for 2 to 5 players.
+**Play: https://2ab5.github.io/mafia/** · Also here: **[Pen Fight](https://2ab5.github.io/mafia/penfight/)** for 2 to 5 players, and **[Pictionary](https://2ab5.github.io/mafia/pictionary/)** for 4 to 12.
 
 A party game of lies for 4 to 8 players. Everyone gets a secret role on their own phone. By night the Mafia strikes; by day the town argues, accuses and votes. No accounts and no installs.
 
@@ -123,3 +123,39 @@ The last-bench classic, online for 2 to 5 friends. Everyone has a pen on the sam
 | `penfight/src/ui.js` | Desk renderer, flick controls and screens |
 | `penfight/src/clips.js` | Replay clips and highlight reels (video made in the browser) |
 | `penfight/index.html` | The built page (`node penfight/build.js`) |
+
+# Pictionary
+
+**Play: https://2ab5.github.io/mafia/pictionary/**
+
+Team draw-and-guess for 4 to 12 friends, each on their own phone. There are two teams, Blue and Red. On each turn one player draws while their teammates guess, and **the other team chooses the word**.
+
+- **Setting the word:**
+  - The other team types the word or phrase, picks a category (Food, Movie, Place and so on, or their own) and can add a hint. If they need ideas, they can tap a suggestion from about 340 words: everyday things, Bollywood and Indian life, and hard phrases.
+  - Anyone on that team can send the word. Their chat starts on **Team only** so they can decide in private.
+  - If nobody sends a word in time, the game picks one.
+- **Guessing:**
+  - Guessers see the category and one blank per letter. The setters' hint unlocks a third of the way in, and a few letters appear near the end (the host can turn letters off).
+  - Spelling slips like "pani-puri" or "panipuri" still count. A near miss gets a private "really close!".
+  - Guessers never receive the word until the reveal; the host's phone keeps it.
+- **Scoring:**
+  - A correct guess scores 50 to 100 points for the drawing team, more the faster it is.
+  - If nobody gets it, the team that set the word scores 40.
+  - The drawer can pass on one unfair word in the first 15 seconds, and the setters then pick another.
+- **Chat:** the setting team can tease and mislead in the chat, but any message that contains the word is blocked, and only the sender sees it. The drawer can't chat, only react.
+- **Drawing:** 12 colours, 4 brush sizes, eraser, fill bucket, undo and clear. Everyone renders the same list of strokes, so the picture matches on every screen. A phone that reloads or reconnects mid-turn gets the whole drawing back.
+- **End of game:** team scores, a per-player table (points, correct guesses, drawings guessed, stumps), awards like ⚡ Quickest guess, 🎨 Best artist and 🧩 Word master, and a gallery of every drawing with its word. Each drawing can be downloaded, or all of them saved as one image.
+- **Also:**
+  - Rooms, QR invites, reconnects and spectators (👁 Watch) work like Pen Fight.
+  - The host picks 1 to 4 rounds, the drawing time (60 to 120 s) and the word-picking time.
+  - Dark theme by default, with a ☀️/🌙 toggle that each phone remembers. On a computer the chat sits beside the board.
+
+| Path | What it holds |
+| --- | --- |
+| `pictionary/src/game.js` | Turns, word rules, guess matching, hints, scoring, tested in Node |
+| `pictionary/src/words.js` | Suggestion word packs |
+| `pictionary/src/net.js` | Rooms, the host's game clock, per-player views that hide the word, chat routing |
+| `pictionary/src/draw.js` | Drawing board, stroke sync and the chat panel |
+| `pictionary/src/ui.js` | Screens |
+| `pictionary/index.html` | The built page (`node pictionary/build.js`) |
+

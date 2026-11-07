@@ -534,6 +534,7 @@ render = function () {
   toastEl.hidden = !S.toast; toastEl.textContent = S.toast;
   restoreFocus(keep);
   if (chatFocused) { const ci = document.getElementById('chatIn'); if (ci && !ci.disabled) try { ci.focus({ preventScroll: true }); } catch (e) { /* ignore */ } }
+  Chat.restore();
   tickHud(); syncWake();
 };
 let lastTickSec = -1;

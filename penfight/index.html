@@ -2653,7 +2653,11 @@ const PF = (function () {
 
   const TABLE = { w: 8, h: 12 };                // biggest desk, centred on 0,0 (a pen is 1.6 units long)
   /* the desk grows with the number of players: a tight duel for 2, the full desk for 4-5 */
-  function tableFor(n) { return n <= 2 ? { w: 7, h: 10.5 } : n === 3 ? { w: 7.5, h: 11.25 } : { w: 8, h: 12 }; }
+  function tableFor(n) {
+    if (n <= 2) return { w: 7, h: 10.5 }; if (n === 3) return { w: 7.5, h: 11.25 }; if (n <= 5) return { w: 8, h: 12 };
+    // 6 to 12 pens: the desk grows so the ring of pens keeps about the same spacing
+    const k = 1 + (n - 5) * 0.06; return { w: round3(8 * k), h: round3(12 * k) };
+  }
   const PEN = { len: 1.6, wid: 0.17 };           // the standard ballpoint; other pens differ (see SKINS)
   const BASE_MASS = PEN.len * PEN.wid;
   // Desk friction is Coulomb (a fixed amount of speed off every second), so pens slow steadily and stop dead.
@@ -2662,7 +2666,7 @@ const PF = (function () {
   const SLIDE_DECEL = 10.0;                      // units/s^2
   const SPIN_DECEL = 55;                         // rad/s^2
   const MAX_TRAVEL = 7;                          // a full lengthwise flick of the standard pen slides ~4.4 pen lengths
-  const MIN_PLAYERS = 2, MAX_PLAYERS = 5;
+  const MIN_PLAYERS = 2, MAX_PLAYERS = 12;
   const DT = 1 / 60;
   const MAX_ROLL_SECS = 12;
 
@@ -3515,7 +3519,7 @@ function hostHandle(rec, d) {
     let r = H.roster.find(function (x) { return x.token === rec.token; });
     if (r) { r.name = hostUniqueName(d.name, r.id); r.skin = hostUniqueSkin(d.skin, r.id); }
     else {
-      if (H.roster.length >= PF.MAX_PLAYERS) { hostSend(rec, { t: 'err', msg: 'The desk is full (five players), so you’re watching. A seat opens if someone leaves.' }); return; }
+      if (H.roster.length >= PF.MAX_PLAYERS) { hostSend(rec, { t: 'err', msg: 'The desk is full (12 players), so you’re watching. A seat opens if someone leaves.' }); return; }
       r = { id: 'p' + randId(7), token: rec.token, name: '', skin: '' };
       r.name = hostUniqueName(d.name, r.id); r.skin = hostUniqueSkin(d.skin, r.id);
       H.roster.push(r);
@@ -4511,7 +4515,7 @@ function hero(small) {
   setTimeout(function () { drawHeroArt(art); }, 0);
   return h('header', { class: 'hero' + (small ? ' small' : '') },
     h('div', { class: 'herotext' },
-      h('p', { class: 'kicker', text: 'The last-bench classic · 2–5 players' }),
+      h('p', { class: 'kicker', text: 'The last-bench classic · 2–12 players' }),
       h('h1', { class: 'brand-big' }, 'Pen Fight', h('span', { class: 'dot', text: '!' })),
       small ? null : h('p', { class: 'tagline', text: 'Flick your pen, knock theirs off the desk. Last pen standing wins the round. Play with friends on your own phones.' })),
     small ? null : art);
@@ -4666,7 +4670,10 @@ function lobbyScreen() {
       !r.on ? h('em', { class: 'tag warnt', text: 'offline' }) : null,
       host && r.id !== S.me ? h('button', { type: 'button', class: 'xbtn', 'aria-label': 'Remove ' + r.name, 'data-remove': r.id, onclick: function () { hostRemove(r.id); } }, icon('x', 14)) : null);
   });
-  for (let i = n; i < PF.MAX_PLAYERS; i++) seats.push(h('div', { class: 'seat empty' }, h('span', { class: 'nm', text: 'Empty seat' })));
+  // show a few empty seats, then just say how many more fit
+  const shown = Math.max(0, Math.min(PF.MAX_PLAYERS, Math.max(n + 1, 5)) - n);
+  for (let i = 0; i < shown; i++) seats.push(h('div', { class: 'seat empty' }, h('span', { class: 'nm', text: 'Empty seat' })));
+  if (PF.MAX_PLAYERS - n - shown > 0) seats.push(h('div', { class: 'seat empty more' }, h('span', { class: 'nm', text: '+' + (PF.MAX_PLAYERS - n - shown) + ' more seats' })));
   const sc = card(h('div', { class: 'cardhead' }, h('h2', { text: 'The desk' }), h('span', { class: 'count', id: 'seatCount', text: n + ' / ' + PF.MAX_PLAYERS })),
     h('p', { class: 'dim', text: n < 2 ? 'Waiting for a friend, or add a computer player.' : 'Ready to fight. More can still join.' }), h('div', { class: 'seats' }, seats));
   if (!S.me && !host) {

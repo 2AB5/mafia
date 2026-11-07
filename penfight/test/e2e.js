@@ -65,7 +65,7 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
       await waitFor(() => pg.$('#codeIn'), 'join form');
       await pg.fill('#nameIn', names[i]); await pg.click('#skinPick [data-skin="' + skins[i] + '"]'); await pg.click('#joinBtn');
     }
-    await waitFor(async () => (await host.textContent('#seatCount')).trim() === n + ' / 5', 'all seated', 30000);
+    await waitFor(async () => (await host.textContent('#seatCount')).trim() === n + ' / 12', 'all seated', 30000);
     const sk = await ev(host, 'window.__pf.S.st.roster.map(r => r.skin).join(",")');
     check(new Set(sk.split(',')).size === n, 'pens are unique: ' + sk);
     if (opts.shots) { await sleep(300); await host.screenshot({ path: path.join(SHOTS, '02-lobby.png'), fullPage: true }); }
@@ -244,15 +244,50 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     console.log('  practice vs 2 easy bots: ' + (fm.players.find(p => p.id === fm.winner) || {}).name + ' won; ' + myShots + ' human flicks, ' + botShots + ' bot flicks; replay button ' + (replayClicked ? 'used' : 'not needed'));
     await pg.context().close();
   }
+  /* 12 at one desk: host, a friend and 10 computer players */
+  async function bigTable() {
+    const host = await newPage('bighost', 400, 880), guest = await newPage('bigguest', 1280, 800);
+    await host.goto(URL); await host.fill('#nameIn', 'Ab'); await host.click('#createBtn');
+    await waitFor(() => ev(host, "window.__pf.S.conn === 'open'"), 'room open');
+    const code = await ev(host, 'window.__pf.S.room');
+    await guest.goto(URL + '#' + code); await waitFor(() => guest.$('#codeIn'), 'join'); await guest.fill('#nameIn', 'Riya'); await guest.click('#joinBtn');
+    await waitFor(async () => (await host.textContent('#seatCount')).trim() === '2 / 12', 'guest seated');
+    for (let i = 0; i < 10; i++) await host.click('#addBot-' + ['easy', 'normal', 'hard'][i % 3]);
+    await waitFor(async () => (await host.textContent('#seatCount')).trim() === '12 / 12', '12 seated');
+    check(!(await host.$('#addBot-easy')), 'no more bots once the desk is full');
+    await host.screenshot({ path: path.join(SHOTS, 'big-lobby.png'), fullPage: true });
+    await host.click('#startBtn');
+    await waitFor(() => ev(guest, '!!(window.__pf.S.st.match && window.__pf.S.st.match.pens.length === 12)'), 'guest sees 12 pens');
+    const m = await ev(host, 'window.__pf.H.match');
+    check(m.table.w > 8 && m.pens.every(p => Math.abs(p.x) < m.table.w / 2 && Math.abs(p.y) < m.table.h / 2), 'bigger desk, every pen on it');
+    // let the computer players flick; when it's a person's turn, they flick at the nearest pen
+    const t0 = Date.now(); let turns = 0;
+    while (Date.now() - t0 < 90000 && turns < 14) {
+      const x = await ev(host, 'window.__pf.H.match');
+      if (x.phase === 'over') break;
+      if (x.phase !== 'aim') { await sleep(100); continue; }
+      const cur = x.players.find(p => p.id === x.turn);
+      if (!cur.bot) {
+        const me = x.pens.find(p => p.id === x.turn), o = x.pens.filter(p => !p.out && p.id !== x.turn).sort((a, b) => Math.hypot(a.x - me.x, a.y - me.y) - Math.hypot(b.x - me.x, b.y - me.y))[0];
+        await flick(cur.id === x.players[0].id ? host : guest, x.turn, o.id, 0.8, 0);
+      }
+      await waitFor(() => ev(host, "window.__pf.H.match.turnNo !== " + x.turnNo + " || window.__pf.H.match.phase !== 'aim'"), 'turn passes', 40000); turns++;
+    }
+    check(turns >= 6, '12-player game keeps moving (' + turns + ' turns)');
+    await sleep(800);
+    await guest.screenshot({ path: path.join(SHOTS, 'big-desk.png') });
+    await host.screenshot({ path: path.join(SHOTS, 'big-desk-phone.png') });
+    await host.context().close(); await guest.context().close();
+  }
   async function onlineWithBot() {
     const host = await newPage('bhost', 400, 880), guest = await newPage('bguest', 400, 880);
     await host.goto(URL); await host.fill('#nameIn', 'Ab'); await host.click('#createBtn');
     await waitFor(() => ev(host, "window.__pf.S.conn === 'open'"), 'room open');
     const code = await ev(host, 'window.__pf.S.room');
     await guest.goto(URL + '#' + code); await waitFor(() => guest.$('#codeIn'), 'join'); await guest.fill('#nameIn', 'Riya'); await guest.click('#joinBtn');
-    await waitFor(async () => (await host.textContent('#seatCount')).trim() === '2 / 5', 'guest seated');
+    await waitFor(async () => (await host.textContent('#seatCount')).trim() === '2 / 12', 'guest seated');
     await host.click('#addBot-hard');
-    await waitFor(async () => (await host.textContent('#seatCount')).trim() === '3 / 5', 'bot seated');
+    await waitFor(async () => (await host.textContent('#seatCount')).trim() === '3 / 12', 'bot seated');
     const botId = await ev(host, 'window.__pf.S.st.roster.find(r => r.bot).id');
     await host.click('[data-bot="' + botId + '"]');           // hard -> easy
     await waitFor(() => ev(guest, "(window.__pf.S.st.roster.find(r => r.bot) || {}).bot === 'easy'"), 'bot level change reached guest');
@@ -318,14 +353,14 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     await dev.goto(URL + '#' + code); await waitFor(() => dev.$('#codeIn'), 'dev home'); await dev.fill('#nameIn', 'Dev'); await dev.click('#watchBtn');
     await anon.goto(URL); await anon.fill('#codeIn', code); await anon.click('#watchBtn');
     await waitFor(async () => (await host.$('#viewCount')) && (await host.textContent('#viewCount')).trim() === '2', 'host sees 2 viewers');
-    check((await host.textContent('#seatCount')).trim() === '2 / 5', 'viewers do not take seats');
+    check((await host.textContent('#seatCount')).trim() === '2 / 12', 'viewers do not take seats');
     await waitFor(() => dev.$('#watching'), 'dev told they are watching');
     check(JSON.stringify(await ev(host, 'window.__pf.S.st.viewers')) === JSON.stringify(['Dev', 'Guest']), 'viewer names listed');
     // a seated player can step back to watch
     await riya.goto(URL + '#' + code); await waitFor(() => riya.$('#codeIn'), 'riya home'); await riya.fill('#nameIn', 'Riya'); await riya.click('#joinBtn');
-    await waitFor(async () => (await host.textContent('#seatCount')).trim() === '3 / 5', 'riya seated');
+    await waitFor(async () => (await host.textContent('#seatCount')).trim() === '3 / 12', 'riya seated');
     await riya.click('#justWatch');
-    await waitFor(async () => (await host.textContent('#seatCount')).trim() === '2 / 5' && (await host.textContent('#viewCount')).trim() === '3', 'riya now watching');
+    await waitFor(async () => (await host.textContent('#seatCount')).trim() === '2 / 12' && (await host.textContent('#viewCount')).trim() === '3', 'riya now watching');
     await host.click('#eyeChip'); await waitFor(() => host.$('#viewPop'), 'viewer list opens');
     check(/Dev/.test(await host.textContent('#viewPop')) && /Riya/.test(await host.textContent('#viewPop')), 'viewer list shows names');
     await host.screenshot({ path: path.join(SHOTS, '18-host-viewers.png'), fullPage: true });
@@ -426,6 +461,7 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     await pg.context().close();
   }
   try {
+    if (process.env.BIG_ONLY) { await bigTable(); throw 'done'; }
     if (process.env.LOCAL_ONLY) { await localMatch(); throw 'done'; }
     if (process.env.PRACTICE_ONLY) { for (let k = 0; k < 3; k++) await practiceVsBots(); throw 'done'; }
     if (process.env.BOT_ONLY) { for (let k = 0; k < 3; k++) await onlineWithBot(); throw 'done'; }

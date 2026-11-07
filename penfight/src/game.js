@@ -5,7 +5,11 @@ const PF = (function () {
 
   const TABLE = { w: 8, h: 12 };                // biggest desk, centred on 0,0 (a pen is 1.6 units long)
   /* the desk grows with the number of players: a tight duel for 2, the full desk for 4-5 */
-  function tableFor(n) { return n <= 2 ? { w: 7, h: 10.5 } : n === 3 ? { w: 7.5, h: 11.25 } : { w: 8, h: 12 }; }
+  function tableFor(n) {
+    if (n <= 2) return { w: 7, h: 10.5 }; if (n === 3) return { w: 7.5, h: 11.25 }; if (n <= 5) return { w: 8, h: 12 };
+    // 6 to 12 pens: the desk grows so the ring of pens keeps about the same spacing
+    const k = 1 + (n - 5) * 0.06; return { w: round3(8 * k), h: round3(12 * k) };
+  }
   const PEN = { len: 1.6, wid: 0.17 };           // the standard ballpoint; other pens differ (see SKINS)
   const BASE_MASS = PEN.len * PEN.wid;
   // Desk friction is Coulomb (a fixed amount of speed off every second), so pens slow steadily and stop dead.
@@ -14,7 +18,7 @@ const PF = (function () {
   const SLIDE_DECEL = 10.0;                      // units/s^2
   const SPIN_DECEL = 55;                         // rad/s^2
   const MAX_TRAVEL = 7;                          // a full lengthwise flick of the standard pen slides ~4.4 pen lengths
-  const MIN_PLAYERS = 2, MAX_PLAYERS = 5;
+  const MIN_PLAYERS = 2, MAX_PLAYERS = 12;
   const DT = 1 / 60;
   const MAX_ROLL_SECS = 12;
 

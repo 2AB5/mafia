@@ -129,7 +129,7 @@ function hostHandle(rec, d) {
     let r = H.roster.find(function (x) { return x.token === rec.token; });
     if (r) { r.name = hostUniqueName(d.name, r.id); r.skin = hostUniqueSkin(d.skin, r.id); }
     else {
-      if (H.roster.length >= PF.MAX_PLAYERS) { hostSend(rec, { t: 'err', msg: 'The desk is full (five players), so you’re watching. A seat opens if someone leaves.' }); return; }
+      if (H.roster.length >= PF.MAX_PLAYERS) { hostSend(rec, { t: 'err', msg: 'The desk is full (12 players), so you’re watching. A seat opens if someone leaves.' }); return; }
       r = { id: 'p' + randId(7), token: rec.token, name: '', skin: '' };
       r.name = hostUniqueName(d.name, r.id); r.skin = hostUniqueSkin(d.skin, r.id);
       H.roster.push(r);

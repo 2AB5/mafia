@@ -1,6 +1,6 @@
 # Mafia · Night Table
 
-**Play: https://2ab5.github.io/mafia/** · Also here: **[Pen Fight](https://2ab5.github.io/mafia/penfight/)** for 2 to 5 players, **[Pictionary](https://2ab5.github.io/mafia/pictionary/)** for 4 to 12, and **[Badminton](https://2ab5.github.io/mafia/badminton/)** for 2 to 4.
+**Play: https://2ab5.github.io/mafia/** · Also here: **[Pen Fight](https://2ab5.github.io/mafia/penfight/)** for 2 to 12 players, **[Pictionary](https://2ab5.github.io/mafia/pictionary/)** for 4 to 12, and **[Badminton](https://2ab5.github.io/mafia/badminton/)** for 2 to 4.
 
 A party game of lies for 4 to 8 players. Everyone gets a secret role on their own phone. By night the Mafia strikes; by day the town argues, accuses and votes. No accounts and no installs.
 
@@ -71,7 +71,7 @@ Inspired by [meet244/Mafia](https://github.com/meet244/Mafia).
 
 **Play: https://2ab5.github.io/mafia/penfight/**
 
-The last-bench classic, online for 2 to 5 friends. Everyone has a pen on the same wooden desk. On your turn you flick your pen, and the aim is to knock everyone else's pen off the desk without sending your own over the edge. The last pen on the desk wins the round, and the first player to reach the target number of rounds wins the match.
+The last-bench classic, online for 2 to 12 friends. Everyone has a pen on the same wooden desk. On your turn you flick your pen, and the aim is to knock everyone else's pen off the desk without sending your own over the edge. The last pen on the desk wins the round, and the first player to reach the target number of rounds wins the match. The desk gets bigger as more people sit down (up to 12 online; passing one device stays at 2 to 5).
 
 **Teams:** with 3 or more players, the host can switch to Blue vs Red (2v1, 2v2 or 3v2). Teammates sit apart, turns alternate between teams, and a team wins the round when no opponent pen is left on the desk. Knocking off your own teammate counts against you.
 

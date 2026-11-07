@@ -3,7 +3,7 @@ const PF = require('../src/game.js');
 let pass = 0, fail = 0;
 function test(name, fn) { try { fn(); pass++; } catch (e) { fail++; console.log('FAIL: ' + name + '\n  ' + (e.stack || e).toString().split('\n').slice(0, 3).join('\n  ')); } }
 function seeded(seed) { let s = seed >>> 0; return function () { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
-const P = n => Array.from({ length: n }, (_, i) => ({ id: 'p' + i, name: 'N' + i, skin: PF.SKINS[i].id }));
+const P = n => Array.from({ length: n }, (_, i) => ({ id: 'p' + i, name: 'N' + i, skin: PF.SKINS[i % PF.SKINS.length].id }));
 function segDist(a, b) {
   // min distance between two pen centre-lines (approx, sampled)
   let best = Infinity;
@@ -27,7 +27,7 @@ test('config normalisation', () => {
 });
 test('player count limits', () => {
   assert.throws(() => PF.newMatch({ players: P(1) }));
-  assert.throws(() => PF.newMatch({ players: P(6).map((p, i) => ({ ...p, skin: 'blue' })) }));
+  assert.throws(() => PF.newMatch({ players: P(13).map((p, i) => ({ ...p, skin: 'blue' })) }));
   for (let n = 2; n <= 5; n++) assert.doesNotThrow(() => PF.newMatch({ players: P(n) }));
   const d = P(3); d[1].id = 'p0';
   assert.throws(() => PF.newMatch({ players: d }));
@@ -215,14 +215,14 @@ test('state is plain JSON', () => {
   const c = JSON.parse(JSON.stringify(m));
   assert.deepStrictEqual(c, m);
 });
-test('random full matches 2..5 players terminate with consistent results', () => {
+test('random full matches 2..12 players terminate with consistent results', () => {
   let matches = 0, rounds = 0, shots = 0;
-  for (let n = 2; n <= 5; n++) for (let s = 1; s <= 40; s++) {
+  for (let n = 2; n <= 12; n++) for (let s = 1; s <= (n <= 5 ? 40 : 8); s++) {
     const rng = seeded(n * 1000 + s);
     const m = PF.newMatch({ players: P(n), rng: rng, cfg: { target: 2 } });
     let guard = 0;
     while (m.phase !== 'over') {
-      assert.ok(guard++ < 2000, 'match did not end');
+      assert.ok(guard++ < 2000 * Math.max(1, n - 4), 'match did not end');
       if (m.phase === 'roundover') { rounds++; PF.startRound(m, rng); continue; }
       assert.strictEqual(m.phase, 'aim');
       const me = PF.penOf(m, m.turn);
@@ -441,6 +441,15 @@ test('old saved matches without new stat fields still summarise', () => {
   m.stats = { p0: { ko: 1, self: 0, mate: 0 } };
   const s = PF.matchSummary(m);
   assert.strictEqual(s.rows.length, 3); assert.strictEqual(s.totalShots, 0);
+});
+test('6 to 12 pens: a bigger desk and no pens touching at the start', () => {
+  for (let n = 6; n <= 12; n++) for (let s = 1; s <= 20; s++) {
+    const m = PF.newMatch({ players: P(n), rng: seeded(n * 77 + s) });
+    assert.ok(m.table.w > 8 && m.table.h > 12);
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) { const a = m.pens[i], b = m.pens[j]; assert.ok(Math.hypot(a.x - b.x, a.y - b.y) > 1.2, n + ' pens: start spacing'); }
+    m.pens.forEach(p => assert.ok(Math.abs(p.x) < m.table.w / 2 - 1 && Math.abs(p.y) < m.table.h / 2 - 1));
+  }
+  assert.throws(() => PF.newMatch({ players: P(13) }));
 });
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

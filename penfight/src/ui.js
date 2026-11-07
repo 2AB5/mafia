@@ -526,7 +526,7 @@ function hero(small) {
   setTimeout(function () { drawHeroArt(art); }, 0);
   return h('header', { class: 'hero' + (small ? ' small' : '') },
     h('div', { class: 'herotext' },
-      h('p', { class: 'kicker', text: 'The last-bench classic · 2–5 players' }),
+      h('p', { class: 'kicker', text: 'The last-bench classic · 2–12 players' }),
       h('h1', { class: 'brand-big' }, 'Pen Fight', h('span', { class: 'dot', text: '!' })),
       small ? null : h('p', { class: 'tagline', text: 'Flick your pen, knock theirs off the desk. Last pen standing wins the round. Play with friends on your own phones.' })),
     small ? null : art);
@@ -681,7 +681,10 @@ function lobbyScreen() {
       !r.on ? h('em', { class: 'tag warnt', text: 'offline' }) : null,
       host && r.id !== S.me ? h('button', { type: 'button', class: 'xbtn', 'aria-label': 'Remove ' + r.name, 'data-remove': r.id, onclick: function () { hostRemove(r.id); } }, icon('x', 14)) : null);
   });
-  for (let i = n; i < PF.MAX_PLAYERS; i++) seats.push(h('div', { class: 'seat empty' }, h('span', { class: 'nm', text: 'Empty seat' })));
+  // show a few empty seats, then just say how many more fit
+  const shown = Math.max(0, Math.min(PF.MAX_PLAYERS, Math.max(n + 1, 5)) - n);
+  for (let i = 0; i < shown; i++) seats.push(h('div', { class: 'seat empty' }, h('span', { class: 'nm', text: 'Empty seat' })));
+  if (PF.MAX_PLAYERS - n - shown > 0) seats.push(h('div', { class: 'seat empty more' }, h('span', { class: 'nm', text: '+' + (PF.MAX_PLAYERS - n - shown) + ' more seats' })));
   const sc = card(h('div', { class: 'cardhead' }, h('h2', { text: 'The desk' }), h('span', { class: 'count', id: 'seatCount', text: n + ' / ' + PF.MAX_PLAYERS })),
     h('p', { class: 'dim', text: n < 2 ? 'Waiting for a friend, or add a computer player.' : 'Ready to fight. More can still join.' }), h('div', { class: 'seats' }, seats));
   if (!S.me && !host) {

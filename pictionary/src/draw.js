@@ -217,9 +217,12 @@ function showReaction(name, e) { Board.float(name, e); }
 /* ===== chat panel: a persistent element so typing never gets interrupted by re-renders ===== */
 const Chat = (function () {
   let el = null, log = null, input = null, form = null, teamBtn = null, sendBtn = null;
+  // the page is rebuilt around the chat, and a detached element loses its scroll position, so remember it
+  let atBottom = true, savedTop = 0;
   function ensure() {
     if (el) return el;
     log = h('div', { class: 'chatlog', id: 'chatLog', role: 'log', 'aria-live': 'polite' });
+    log.addEventListener('scroll', function () { if (!log.isConnected || !log.clientHeight) return; savedTop = log.scrollTop; atBottom = near(); }, { passive: true });
     input = h('input', { id: 'chatIn', type: 'text', maxlength: '120', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'aria-label': 'Guess or chat' });
     teamBtn = h('button', { type: 'button', class: 'teambtn', id: 'teamToggle', 'aria-pressed': 'false', onclick: function () { S.chatTeam = !S.chatTeam; sync(); input.focus(); } }, 'Team only');
     sendBtn = h('button', { class: 'btn primary sendb', type: 'submit', id: 'chatSend', 'aria-label': 'Send' }, icon('send', 18));
@@ -258,11 +261,11 @@ const Chat = (function () {
     const created = !el;
     ensure();
     if (created) { sound(m); return; }        // a fresh panel already drew the whole history, this message included
-    const stick = near();
+    const stick = log.isConnected && log.clientHeight ? near() : atBottom;
     const empty = log.querySelector('.empty'); if (empty) empty.remove();
     log.appendChild(line(m));
     while (log.childNodes.length > 200) log.removeChild(log.firstChild);
-    if (stick || m.f === S.me) log.scrollTop = log.scrollHeight;
+    if (stick || m.f === S.me) { log.scrollTop = log.scrollHeight; atBottom = true; }
     sound(m);
   }
   function sound(m) { if (m.k === 'correct') SFX.correct(); else if (m.k === 'close') SFX.close(); else if (m.k === 'hint') SFX.hint(); else if (m.k === 'stumped') SFX.stumped(); else if (m.f && m.f !== S.me) SFX.msg(); }
@@ -271,8 +274,10 @@ const Chat = (function () {
     clear(log);
     if (!S.chat.length) log.appendChild(h('p', { class: 'empty hint', text: 'Guesses and chat show up here.' }));
     S.chat.forEach(function (m) { log.appendChild(line(m)); });
-    log.scrollTop = log.scrollHeight;
+    log.scrollTop = log.scrollHeight; atBottom = true;
   }
+  /* after a re-render puts the chat back on the page: stay at the newest message, or where the reader had scrolled to */
+  function restore() { if (!log || !log.isConnected) return; log.scrollTop = atBottom ? log.scrollHeight : savedTop; }
   /* placeholder, team toggle and title follow the player's role */
   function sync() {
     ensure();
@@ -296,5 +301,5 @@ const Chat = (function () {
     el.querySelector('#chatTitle').textContent = title;
     el.querySelector('#chatSub').textContent = sub;
   }
-  return { ensure: ensure, add: add, redraw: redraw, sync: sync, input: function () { ensure(); return input; } };
+  return { ensure: ensure, add: add, redraw: redraw, sync: sync, restore: restore, input: function () { ensure(); return input; } };
 })();

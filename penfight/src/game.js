@@ -125,6 +125,14 @@ const PF = (function () {
 
   /* ---------- match ---------- */
   function cleanName(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, 14) || 'Player'; }
+  /* per-player match stats, shown in the end-of-match summary */
+  function newStats() { return { shots: 0, hit: 0, ko: 0, self: 0, mate: 0, fell: 0, skip: 0, alive: 0, best: 0, power: 0 }; }
+  function statsOf(m, id) {
+    if (!m.stats) m.stats = {};
+    const o = m.stats[id] || (m.stats[id] = {});
+    const z = newStats(); for (const k in z) if (typeof o[k] !== 'number') o[k] = z[k];
+    return o;
+  }
   function newMatch(opts) {
     const rng = opts.rng || Math.random;
     const n = opts.players.length;
@@ -143,7 +151,7 @@ const PF = (function () {
       id: opts.id || ('m' + Math.floor(rng() * 1e9).toString(36)),
       cfg: cfg,
       players: opts.players.map(function (p) { const q = { id: p.id, name: cleanName(p.name), skin: skinById(p.skin).id, score: 0 }; if (cfg.teams) q.team = p.team; if (BOT_LEVELS[p.bot]) q.bot = p.bot; return q; }),
-      stats: (function () { const o = {}; opts.players.forEach(function (p) { o[p.id] = { ko: 0, self: 0, mate: 0 }; }); return o; })(),
+      stats: (function () { const o = {}; opts.players.forEach(function (p) { o[p.id] = newStats(); }); return o; })(),
       table: tableFor(n),
       teamScore: cfg.teams ? [0, 0] : null,
       teamNext: cfg.teams ? [0, 0] : null,
@@ -252,13 +260,14 @@ const PF = (function () {
   /* skip the current player (time ran out / left) */
   function skipTurn(m, why) {
     if (m.phase !== 'aim') return false;
+    if (m.turn) statsOf(m, m.turn).skip++;
     addLog(m, nameOf(m, m.turn) + (why || ' skipped their turn.'));
     nextTurn(m);
     return true;
   }
 
   /* after a shot settles: write poses back, eliminate, decide round / match */
-  function settle(m, poses) {
+  function settle(m, poses, sim) {
     const fell = [];
     m.pens.forEach(function (pen, i) {
       if (pen.out) return;
@@ -267,20 +276,27 @@ const PF = (function () {
       if (p && p.out) { pen.out = true; fell.push(pen.id); }
     });
     const shooter = m.lastShot ? m.lastShot.by : m.turn;
+    const ss = statsOf(m, shooter);
+    if (sim && sim.touched) ss.hit++;
     if (fell.length) {
+      let kos = 0;
       fell.forEach(function (id) {
         const mate = m.teamScore && teamOf(m, id) === teamOf(m, shooter);
-        if (m.stats && m.stats[shooter]) { if (id === shooter) m.stats[shooter].self++; else if (mate) m.stats[shooter].mate++; else m.stats[shooter].ko++; }
+        if (id === shooter) ss.self++; else if (mate) ss.mate++; else { ss.ko++; kos++; }
+        if (id !== shooter) statsOf(m, id).fell++;
         addLog(m, id === shooter ? nameOf(m, id) + ' flicked themselves off the desk!'
           : mate ? nameOf(m, shooter) + ' knocked their own teammate ' + nameOf(m, id) + ' off!'
           : nameOf(m, id) + ' was knocked off by ' + nameOf(m, shooter) + '.');
       });
+      if (kos > ss.best) ss.best = kos;
+      if (kos >= 2) addLog(m, nameOf(m, shooter) + ' got ' + (kos === 2 ? 'a double' : kos === 3 ? 'a triple' : 'a ' + kos + '-pen') + ' knock-off!');
     }
     const alive = alivePens(m);
+    const endRound = function () { alive.forEach(function (p) { statsOf(m, p.id).alive++; }); };
     if (m.teamScore) {
       const sides = aliveSides(m);
       if (sides.length > 1) { nextTurn(m); return { fell: fell, roundOver: false }; }
-      m.phase = 'roundover';
+      m.phase = 'roundover'; endRound();
       if (sides.length === 1) {
         const t = Number(sides[0].slice(1));
         m.teamScore[t]++;
@@ -291,7 +307,7 @@ const PF = (function () {
       return { fell: fell, roundOver: true };
     }
     if (alive.length <= 1) {
-      m.phase = 'roundover';
+      m.phase = 'roundover'; endRound();
       if (alive.length === 1) {
         const w = m.players.find(function (p) { return p.id === alive[0].id; });
         w.score++;
@@ -322,6 +338,51 @@ const PF = (function () {
     return { fell: [pid], roundOver: false };
   }
 
+  /* end-of-match summary: one row per player plus a few fun awards */
+  function matchSummary(m) {
+    const plural = function (n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); };
+    const rows = m.players.map(function (p) {
+      const st = statsOf(m, p.id);
+      return {
+        id: p.id, name: p.name, skin: p.skin, team: p.team, bot: p.bot, score: p.score,
+        shots: st.shots, hit: st.hit, ko: st.ko, self: st.self, mate: st.mate, fell: st.fell, skip: st.skip,
+        alive: st.alive, best: st.best,
+        hitPct: st.shots ? Math.round(st.hit / st.shots * 100) : 0,
+        power: st.shots ? Math.round(st.power / st.shots * 100) : 0
+      };
+    });
+    const winTeam = m.teamScore ? m.winnerTeam : null;
+    rows.sort(function (a, b) {
+      if (winTeam !== null && winTeam !== undefined && a.team !== b.team) return a.team === winTeam ? -1 : 1;
+      return (b.score - a.score) || (b.ko - a.ko) || (b.alive - a.alive) || (a.fell - b.fell) || (a.shots - b.shots);
+    });
+    const awards = [];
+    // the single best row for a metric, or null if nobody qualifies or the top is tied
+    const top = function (val, ok) {
+      const c = rows.filter(ok || function () { return true; });
+      if (!c.length) return null;
+      c.sort(function (a, b) { return val(b) - val(a); });
+      if (c.length > 1 && val(c[0]) === val(c[1])) return null;
+      return c[0];
+    };
+    const totalShots = rows.reduce(function (a, r) { return a + r.shots; }, 0);
+    if (!totalShots) return { rows: rows, awards: awards, totalShots: 0 };
+    let r;
+    r = top(function (x) { return x.best; }, function (x) { return x.best >= 2; });
+    if (r) awards.push({ id: 'multi', icon: '💥', title: r.best === 2 ? 'Double knock' : r.best === 3 ? 'Triple knock' : 'Desk clearer', who: r.id, text: plural(r.best, 'pen') + ' off in a single flick' });
+    r = top(function (x) { return x.ko / x.shots * 1000 + x.ko; }, function (x) { return x.ko >= 1 && x.shots >= 1; });
+    if (r) awards.push({ id: 'sniper', icon: '🎯', title: 'Sharpshooter', who: r.id, text: plural(r.ko, 'knock-off') + ' from ' + plural(r.shots, 'shot') });
+    r = top(function (x) { return x.alive * 1000 - x.fell; }, function (x) { return x.alive >= 1; });
+    if (r && m.round >= 2) awards.push({ id: 'survivor', icon: '🛡️', title: 'Survivor', who: r.id, text: 'still on the desk at the end of ' + plural(r.alive, 'round') });
+    r = top(function (x) { return x.shots; });
+    if (r) awards.push({ id: 'busy', icon: '🖊️', title: 'Busiest hand', who: r.id, text: plural(r.shots, 'shot') + ' taken' });
+    r = top(function (x) { return x.power; }, function (x) { return x.shots >= 2; });
+    if (r && r.power >= 60) awards.push({ id: 'power', icon: '💪', title: 'Full power', who: r.id, text: 'average flick at ' + r.power + '% power' });
+    r = top(function (x) { return x.self + x.mate; }, function (x) { return x.self + x.mate >= 1; });
+    if (r) awards.push({ id: 'oops', icon: '🙈', title: 'Oops', who: r.id, text: r.self && r.mate ? plural(r.self, 'self knock-off') + ' and ' + plural(r.mate, 'teammate') + ' knocked off' : r.self ? 'flicked themselves off ' + (r.self === 1 ? 'once' : r.self + ' times') : 'knocked off ' + plural(r.mate, 'teammate') });
+    return { rows: rows, awards: awards.slice(0, 4), totalShots: totalShots };
+  }
+
   /* ---------- physics ---------- */
   function Sim(m) {
     this.table = m.table || tableFor(m.players.length);
@@ -344,9 +405,14 @@ const PF = (function () {
     });
     this.out = m.pens.map(function (p) { return !!p.out; });
     this.fellNow = [];
+    this.shooter = -1; this.touched = false;
     this.world.on('post-solve', function (contact, imp) {
       const n = imp.normalImpulses[0] || 0;
       if (n > self.hits) self.hits = n;
+      if (!self.touched && self.shooter >= 0) {
+        const a = contact.getFixtureA().getBody().getUserData(), b = contact.getFixtureB().getBody().getUserData();
+        if (a !== b && (a === self.shooter || b === self.shooter)) self.touched = true;
+      }
     });
   }
   Sim.prototype.shoot = function (penIndex, shot) {
@@ -411,8 +477,10 @@ const PF = (function () {
     if (!s) return null;
     const idx = m.pens.findIndex(function (p) { return p.id === pid; });
     const sim = new Sim(m);
+    sim.shooter = idx;
     sim.shoot(idx, s);
     m.phase = 'roll';
+    const st = statsOf(m, pid); st.shots++; st.power = round3(st.power + s.power);
     m.lastShot = { by: pid, lx: round3(s.lx), ix: round3(s.ix), iy: round3(s.iy), power: round3(s.power), turnNo: m.turnNo };
     return sim;
   }
@@ -423,7 +491,7 @@ const PF = (function () {
     if (!sim) return null;
     let steps = 0;
     while (!sim.settled() && steps++ < MAX_ROLL_SECS / DT + 5) sim.step();
-    return settle(m, sim.poses(m));
+    return settle(m, sim.poses(m), sim);
   }
 
   /* where a flick would leave the pen if it hit nothing: { x, y, a, dist }. Runs the same friction as the
@@ -525,7 +593,7 @@ const PF = (function () {
     TABLE: TABLE, PEN: PEN, MAX_IMPULSE: MAX_IMPULSE, MAX_TRAVEL: MAX_TRAVEL, penSpec: penSpec, specOf: specOf, deskFriction: deskFriction, _resetSpecs: resetSpecs, predict: predict, impulseForPull: impulseForPull, MIN_PLAYERS: MIN_PLAYERS, MAX_PLAYERS: MAX_PLAYERS, DT: DT, SKINS: SKINS,
     skinById: skinById, defaultConfig: defaultConfig, normalizeConfig: normalizeConfig, startPositions: startPositions, onTable: onTable, tableFor: tableFor,
     newMatch: newMatch, startRound: startRound, nextTurn: nextTurn, checkShot: checkShot, skipTurn: skipTurn, settle: settle, forfeit: forfeit,
-    Sim: Sim, beginShot: beginShot, simulateShot: simulateShot, penOf: penOf, alivePens: alivePens, nameOf: nameOf, standings: standings, normAngle: normAngle
+    Sim: Sim, beginShot: beginShot, simulateShot: simulateShot, penOf: penOf, alivePens: alivePens, nameOf: nameOf, standings: standings, normAngle: normAngle, matchSummary: matchSummary, statsOf: statsOf
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = PF;

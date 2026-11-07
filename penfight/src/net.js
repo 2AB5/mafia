@@ -116,6 +116,7 @@ function hostHandle(rec, d) {
     if (tok.length < 8) return;
     H.conns.forEach(function (o, k) { if (o !== rec && o.token === tok) { hostSend(o, { t: 'replaced' }); try { o.conn.close(); } catch (e) { /* ignore */ } H.conns.delete(k); } });
     rec.token = tok;
+    rec.vname = cleanName(d.name) || 'Guest';
     const r = H.roster.find(function (x) { return x.token === tok; });
     rec.pid = r ? r.id : null;
     hostSend(rec, hostSnapshot(rec.pid));
@@ -124,27 +125,30 @@ function hostHandle(rec, d) {
   }
   if (!rec.token) return;
   if (d.t === 'sit') {
-    if (H.match) { hostSend(rec, { t: 'err', msg: 'A match is on. You can sit down when it ends.' }); return; }
+    if (H.match && H.match.phase !== 'over') { hostSend(rec, { t: 'err', msg: 'A match is on. You can sit down when it ends.' }); return; }
     let r = H.roster.find(function (x) { return x.token === rec.token; });
     if (r) { r.name = hostUniqueName(d.name, r.id); r.skin = hostUniqueSkin(d.skin, r.id); }
     else {
-      if (H.roster.length >= PF.MAX_PLAYERS) { hostSend(rec, { t: 'err', msg: 'The desk is full. Five players is the limit.' }); return; }
+      if (H.roster.length >= PF.MAX_PLAYERS) { hostSend(rec, { t: 'err', msg: 'The desk is full (five players), so you’re watching. A seat opens if someone leaves.' }); return; }
       r = { id: 'p' + randId(7), token: rec.token, name: '', skin: '' };
       r.name = hostUniqueName(d.name, r.id); r.skin = hostUniqueSkin(d.skin, r.id);
       H.roster.push(r);
       hostRebalance();
       SFX.join();
     }
-    rec.pid = r.id;
+    rec.pid = r.id; rec.vname = r.name;
     hostChanged();
     return;
   }
   if (d.t === 'leave') {
-    if (H.match || !rec.pid || rec.pid === H.myId) return;
-    H.roster = H.roster.filter(function (x) { return x.id !== rec.pid; });
-    rec.pid = null; hostChanged();
+    if ((H.match && H.match.phase !== 'over') || !rec.pid || rec.pid === H.myId) return;
+    const gone = rec.pid;
+    H.roster = H.roster.filter(function (x) { return x.id !== gone; });
+    H.conns.forEach(function (o) { if (o.pid === gone) o.pid = null; });
+    hostChanged();
     return;
   }
+  if (d.t === 'react' && !rec.pid) { const now = Date.now(); if (now - rec.lastReact < 900) return; rec.lastReact = now; hostReact('v:' + (rec.vname || 'Guest'), d.e); return; }
   if (!rec.pid) return;
   if (d.t === 'shoot') { hostShoot(rec.pid, d.s); return; }
   if (d.t === 'aim') { const now = Date.now(); if (now - rec.lastAim < 40) return; rec.lastAim = now; hostAim(rec.pid, d.a); return; }
@@ -303,7 +307,7 @@ function hostLoop() {
     }
     if (H.sim.settled()) {
       const simT = H.sim.t;
-      const res = PF.settle(m, H.sim.poses(m));
+      const res = PF.settle(m, H.sim.poses(m), H.sim);
       H.sim = null; H.preShot = null;
       // knock-offs get an instant replay on every screen: give it time before the next turn / round
       const replayMs = res.fell.length ? Math.min(9000, simT / REPLAY_SPEED * 1000 + 1400) : 0;
@@ -360,10 +364,20 @@ function hostSnapshot(pid) {
   return {
     t: 'state', you: pid || null, local: H.local, room: H.room, hostId: H.myId,
     roster: H.roster.map(function (r) { return { id: r.id, name: r.name, skin: r.skin, team: H.cfg.teams ? r.team : null, bot: r.bot || null, on: !!on[r.id] }; }),
-    cfg: H.cfg, match: m,
+    cfg: H.cfg, match: m, viewers: H.local ? [] : hostViewers(),
     deadlineIn: m && m.phase === 'aim' && H.deadline ? Math.max(0, H.deadline - Date.now()) : null,
     nextRoundIn: m && m.phase === 'roundover' ? Math.max(0, H.nextRoundAt - Date.now()) : null
   };
+}
+/* people connected to the room without a seat: they watch */
+function hostViewers() {
+  const seen = {}, out = [];
+  H.conns.forEach(function (rec) {
+    if (!rec.token || rec.pid || !rec.conn.open || seen[rec.token]) return;
+    if (H.roster.some(function (r) { return r.token === rec.token; })) return;
+    seen[rec.token] = true; out.push(rec.vname || 'Guest');
+  });
+  return out.slice(0, 50);
 }
 function hostPublish() {
   H.sendT = null;
@@ -375,12 +389,12 @@ function hostPublish() {
 
 /* ================= PLAYER ================= */
 const C = { peer: null, conn: null, token: '', attempts: 0, everOpen: false, lastMsg: 0, retryT: null, openT: null, hb: null };
-function clientJoin(code, name, skin) {
+function clientJoin(code, name, skin, watch) {
   S.isHost = false; S.screen = 'room'; S.room = code; S.conn = 'connecting'; S.connMsg = 'Finding room ' + code + '…';
   S.name = cleanName(name); S.skin = validSkin(skin) ? skin : '';
   store('name', S.name); if (S.skin) store('skin', S.skin);
   C.token = store('tok.' + code) || randId(16); store('tok.' + code, C.token); store('lastRoom', code);
-  C.attempts = 0; C.everOpen = false; S.wantSeat = true;
+  C.attempts = 0; C.everOpen = false; S.wantSeat = !watch; S.watchOnly = !!watch; store('watch.' + code, watch ? '1' : '');
   setHash(code);
   if (!C.hb) C.hb = setInterval(clientHeartbeat, 4000);
   clientStartPeer();
@@ -437,7 +451,7 @@ function clientConnect() {
     clearTimeout(C.openT);
     C.everOpen = true; C.attempts = 0; C.lastMsg = Date.now();
     S.conn = 'open'; S.connMsg = '';
-    conn.send({ t: 'hello', token: C.token, v: 1 });
+    conn.send({ t: 'hello', token: C.token, v: 1, name: S.name || '' });
     render();
   });
   conn.on('data', function (d) { if (conn !== C.conn) return; C.lastMsg = Date.now(); try { clientHandle(d); } catch (e) { console.warn(e); } });
@@ -479,7 +493,7 @@ function clientHandle(d) {
   if (d.t === 'state') {
     applyState(d);
     if (S.me) S.wantSeat = false;
-    if (S.wantSeat && !d.match && !S.me && S.name) { S.wantSeat = false; clientSend({ t: 'sit', name: S.name, skin: S.skin }); }
+    if (S.wantSeat && (!d.match || d.match.phase === 'over') && !S.me && S.name) { S.wantSeat = false; clientSend({ t: 'sit', name: S.name, skin: S.skin }); }
     return;
   }
   if (d.t === 'f') { onFrame(d); return; }
@@ -552,7 +566,9 @@ const Net = {
     clientSend({ t: 'aim', a: a });
   },
   react: function (e) { if (S.isHost) { if (!H.local) hostReact(H.myId, e); } else clientSend({ t: 'react', e: e }); },
+  watch: function () { S.wantSeat = false; S.watchOnly = true; if (S.room) store('watch.' + S.room, '1'); if (!S.isHost) clientSend({ t: 'leave' }); },
   sit: function (name, skin) {
+    S.wantSeat = false; S.watchOnly = false; if (S.room) store('watch.' + S.room, '');
     S.name = cleanName(name); S.skin = skin; store('name', S.name); if (validSkin(skin)) store('skin', skin);
     if (!S.isHost) clientSend({ t: 'sit', name: S.name, skin: skin });
   },

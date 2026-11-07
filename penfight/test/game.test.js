@@ -386,5 +386,61 @@ test('bots play team matches and avoid knocking teammates', () => {
   const mates = Object.values(m.stats).reduce((a, s) => a + s.mate, 0), kos = Object.values(m.stats).reduce((a, s) => a + s.ko, 0);
   assert.ok(kos > mates, 'knock-offs ' + kos + ' vs teammates hit ' + mates);
 });
+test('match stats count every shot, hit, knock-off and skip', () => {
+  for (const [seed, n, teams] of [[5, 3, false], [9, 2, false], [13, 4, true], [21, 5, false]]) {
+    const rng = seeded(seed);
+    const players = P(n).map((p, i) => teams ? { ...p, team: i % 2 } : p);
+    const m = PF.newMatch({ players, cfg: { target: 2, teams }, rng });
+    let shots = {}, skips = 0, guard = 0, rounds = 0, aliveEnds = 0;
+    players.forEach(p => shots[p.id] = 0);
+    while (m.phase !== 'over' && guard++ < 600) {
+      if (m.phase === 'roundover') { PF.startRound(m, rng); continue; }
+      if (rng() < 0.05) { PF.skipTurn(m); skips++; continue; }
+      const who = m.turn, k0 = m.round;
+      const res = PF.simulateShot(m, who, PF.botPlan(m, who, 'normal', rng));
+      assert.ok(res, 'shot accepted');
+      shots[who]++;
+      if (res.roundOver) { rounds++; aliveEnds += PF.alivePens(m).length; }
+    }
+    assert.strictEqual(m.phase, 'over');
+    const sum = PF.matchSummary(m);
+    assert.strictEqual(sum.rows.length, n);
+    let tot = 0, ko = 0, fellByOthers = 0, mate = 0, skipT = 0, alive = 0;
+    sum.rows.forEach(r => {
+      assert.strictEqual(r.shots, shots[r.id], 'shots for ' + r.name);
+      assert.ok(r.hit <= r.shots && r.hitPct >= 0 && r.hitPct <= 100);
+      assert.ok(r.best <= r.ko && r.power >= 0 && r.power <= 100);
+      tot += r.shots; ko += r.ko; mate += r.mate; fellByOthers += r.fell; skipT += r.skip; alive += r.alive;
+    });
+    assert.strictEqual(sum.totalShots, tot);
+    assert.strictEqual(ko + mate, fellByOthers, 'every pen knocked off by someone else is counted once');
+    assert.strictEqual(skipT, skips);
+    assert.strictEqual(alive, aliveEnds);
+    if (!teams) assert.strictEqual(sum.rows[0].id, m.winner, 'winner listed first');
+    else assert.strictEqual(sum.rows[0].team, m.winnerTeam, 'winning team listed first');
+    const ids = sum.awards.map(a => a.id);
+    assert.strictEqual(new Set(ids).size, ids.length);
+    sum.awards.forEach(a => assert.ok(players.some(p => p.id === a.who) && a.title && a.text));
+  }
+});
+test('a pen that touches another counts as a hit, a miss does not', () => {
+  const m = PF.newMatch({ players: P(2), rng: seeded(3) });
+  m.pens[0].x = 0; m.pens[0].y = -2; m.pens[0].a = 0;
+  m.pens[1].x = 0; m.pens[1].y = 0; m.pens[1].a = 0;
+  m.turn = 'p0';
+  PF.simulateShot(m, 'p0', { lx: 0, ix: 0, iy: PF.MAX_IMPULSE * 0.5, turnNo: m.turnNo });
+  assert.strictEqual(m.stats.p0.shots, 1); assert.strictEqual(m.stats.p0.hit, 1);
+  m.turn = 'p1'; m.phase = 'aim';
+  const b = PF.penOf(m, 'p1'), a = PF.penOf(m, 'p0');
+  const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+  PF.simulateShot(m, 'p1', { lx: 0, ix: dx / d * PF.MAX_IMPULSE * 0.15, iy: dy / d * PF.MAX_IMPULSE * 0.15, turnNo: m.turnNo });
+  assert.strictEqual(m.stats.p1.shots, 1); assert.strictEqual(m.stats.p1.hit, 0, 'flick away from the other pen is a miss');
+});
+test('old saved matches without new stat fields still summarise', () => {
+  const m = PF.newMatch({ players: P(3), rng: seeded(4) });
+  m.stats = { p0: { ko: 1, self: 0, mate: 0 } };
+  const s = PF.matchSummary(m);
+  assert.strictEqual(s.rows.length, 3); assert.strictEqual(s.totalShots, 0);
+});
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

@@ -138,7 +138,7 @@ input[type=text], select { min-height: 46px; padding: 9px 13px; border-radius: 1
 .desk { display: block; touch-action: none; cursor: crosshair; border-radius: 18px; }
 .stage-ov { position: absolute; inset: 0; display: none; place-items: center; padding: 12px; pointer-events: none; overflow-y: auto; }
 .stage-ov.show { display: grid; background: rgba(10, 12, 20, .5); border-radius: 18px; animation: fade .3s ease; }
-.ovcard { pointer-events: auto; width: min(340px, 100%); max-height: 100%; overflow-y: auto; background: var(--surface); color: var(--ink); border-radius: 18px; padding: 20px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; box-shadow: 0 24px 50px -20px rgba(0,0,0,.7); animation: pop .4s cubic-bezier(.2,.9,.3,1.3); }
+.ovcard { pointer-events: auto; width: min(380px, 100%); max-height: 100%; overflow-y: auto; background: var(--surface); color: var(--ink); border-radius: 18px; padding: 20px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; box-shadow: 0 24px 50px -20px rgba(0,0,0,.7); animation: pop .4s cubic-bezier(.2,.9,.3,1.3); }
 .ovcard.win > .ico { color: var(--gold); }
 .ov-k { margin: 0; font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 .ov-t { margin: 0; font-family: var(--f-hand); font-weight: 700; font-size: 40px; line-height: 1; text-wrap: balance; overflow-wrap: anywhere; }
@@ -238,3 +238,40 @@ button.teamb { cursor: pointer; min-height: 28px; }
   .heroart { height: 130px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* end-of-match summary */
+.summary { width: 100%; display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.sumk { margin: 0; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #6b6b6b); }
+.sumtab { width: 100%; border-collapse: separate; border-spacing: 0 4px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.sumtab th { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--muted, #6b6b6b); padding: 0 4px; text-align: center; }
+.sumtab th.pn, .sumtab td.pn { text-align: left; }
+.sumtab td { background: var(--bg); padding: 7px 4px; text-align: center; font-weight: 700; }
+.sumtab td:first-child { border-radius: 10px 0 0 10px; padding-left: 8px; }
+.sumtab td:last-child { border-radius: 0 10px 10px 0; padding-right: 8px; }
+.sumtab td.pn { display: flex; align-items: center; gap: 6px; font-weight: 800; min-width: 0; }
+.sumtab td.pn .cn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+.sumtab td.kos, .sumtab td.won { font-weight: 900; }
+.sumtab tr.me td { box-shadow: inset 0 2px 0 var(--gold), inset 0 -2px 0 var(--gold); }
+.sumtab tr.t0 td:first-child { box-shadow: inset 4px 0 0 #2f66d0; }
+.sumtab tr.t1 td:first-child { box-shadow: inset 4px 0 0 #d6455d; }
+.sumlegend { margin: 0; font-size: 11px; color: var(--muted, #6b6b6b); line-height: 1.35; }
+.awards { list-style: none; margin: 4px 0 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.awards li { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 12px; background: var(--bg); }
+.awards .aic { font-size: 22px; line-height: 1; }
+.awards .atx { display: flex; flex-direction: column; font-size: 13px; line-height: 1.3; }
+.awards .atx b { font-size: 14px; }
+
+/* spectators */
+.hdr { position: relative; }
+.eyechip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 99px; padding: 3px 9px 3px 7px; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; flex: none; }
+.eyechip.on { border-color: var(--accent); color: var(--accent); }
+.viewpop { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); z-index: 30; margin-top: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; box-shadow: 0 14px 30px -14px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 3px; font-size: 14px; min-width: 150px; max-height: 50vh; overflow-y: auto; }
+.viewpop b { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.viewline { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; font-size: 13px; color: var(--muted); font-weight: 700; }
+.watching { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.joinrow input { min-width: 0; }
+.joinrow #watchBtn { display: inline-flex; align-items: center; gap: 6px; }
+
+.sumjump { font-weight: 800; color: var(--accent); text-decoration: none; font-size: 14px; }
+.sumcard .summary { margin-top: 0; }
+.sumcard .sumk { text-align: center; }

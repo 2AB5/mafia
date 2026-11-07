@@ -22,6 +22,7 @@ function teamBadge(t, onClick) {
     ? h('button', { type: 'button', class: 'teamb t' + t, 'aria-label': 'Team ' + lab + '. Tap to switch', 'data-team': String(t), onclick: onClick }, lab)
     : h('em', { class: 'teamb t' + t, 'data-team': String(t), text: lab });
 }
+function viewers() { return (S.st && Array.isArray(S.st.viewers)) ? S.st.viewers : []; }
 function isBot(id) { const m = match(); const p = m && m.players.find(function (q) { return q.id === id; }); return !!(p && p.bot); }
 function shooterIsMe() { const m = match(); return !!m && !isBot(m.turn) && (isLocal() || m.turn === S.me); }
 function canShoot() { const m = match(); return !!m && !REPLAY && m.phase === 'aim' && shooterIsMe() && (isLocal() || S.conn === 'open'); }
@@ -372,6 +373,15 @@ function drawDesk() {
   S.floats = S.floats.filter(function (f) { return now - f.t < 1800; });
   ctx.font = '30px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
   S.floats.forEach(function (f, j) {
+    if (typeof f.pid === 'string' && f.pid.slice(0, 2) === 'v:') {
+      const e = (now - f.t) / 1800, x = s.w * (0.2 + ((j * 37 + f.pid.length * 13) % 60) / 100), y = 70 + e * 40;
+      ctx.globalAlpha = 1 - e * e;
+      ctx.fillText(f.e, x, y);
+      ctx.font = '800 11px "Nunito", system-ui, sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.fillText('\ud83d\udc41 ' + f.pid.slice(2), x, y + 18);
+      ctx.font = '30px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
+      ctx.globalAlpha = 1;
+      return;
+    }
     const i = m.pens.findIndex(function (q) { return q.id === f.pid; });
     const p = poses[i] || { x: 0, y: 0 };
     const sp = toScreen(p.x, p.y), e = (now - f.t) / 1800;
@@ -558,7 +568,13 @@ function homeScreen() {
     const c = cleanCode(S.joinCode);
     if (c.length !== 4) { setErr('Room codes have 4 letters.'); return; }
     clientJoin(c, nm, usableSkin(S.skin));
-  } }, codeIn, h('button', { class: 'btn primary', type: 'submit', id: 'joinBtn' }, 'Join room'));
+  } }, codeIn, h('button', { class: 'btn primary', type: 'submit', id: 'joinBtn' }, 'Join room'),
+    h('button', { class: 'btn ghost', type: 'button', id: 'watchBtn', 'aria-label': 'Watch the room without playing', onclick: function () {
+      const c = cleanCode(S.joinCode);
+      if (c.length !== 4) { setErr('Type the 4-letter room code to watch.'); return; }
+      S.err = ''; const nm = cleanName(S.name); if (nm) store('name', nm);
+      clientJoin(c, nm, usableSkin(S.skin), true);
+    } }, icon('eye', 18), 'Watch'));
   const create = btn('Create a room', function () { const nm = need(); if (!nm) return; hostCreate(nm, usableSkin(S.skin)); }, { kind: invited ? 'ghost' : 'primary big', id: 'createBtn' });
   if (invited) nodes.push(card(h('h3', { text: 'Join room' }), joinForm, h('p', { class: 'hint', text: 'Or start your own:' }), create));
   else nodes.push(card(h('h3', { text: 'Play online' }), create, h('div', { class: 'or' }, h('span', { text: 'or join friends' })), joinForm));
@@ -660,11 +676,14 @@ function lobbyScreen() {
     h('p', { class: 'dim', text: n < 2 ? 'Waiting for a friend, or add a computer player.' : 'Ready to fight. More can still join.' }), h('div', { class: 'seats' }, seats));
   if (!S.me && !host) {
     const taken = {}; roster.forEach(function (r) { taken[r.skin] = true; });
-    sc.appendChild(h('div', { class: 'sitbox' }, h('h3', { text: 'Take a seat' }),
+    sc.appendChild(h('div', { class: 'sitbox' }, h('p', { class: 'watching', id: 'watching', text: '\ud83d\udc41 You’re watching this room. Take a seat to play.' }), h('h3', { text: 'Take a seat' }),
       h('input', { id: 'sitName', type: 'text', maxlength: '14', placeholder: 'Your name', 'aria-label': 'Your name', value: S.name, oninput: function (e) { S.name = e.target.value; } }),
       skinPicker('sitSkin', S.skin, taken, function (sk) { S.skin = sk; render(); }),
       btn('Sit down', function () { if (!cleanName(S.name)) { setErr('Type your name first.'); return; } Net.sit(S.name, usableSkin(S.skin)); }, { kind: 'primary', id: 'sitBtn', disabled: n >= PF.MAX_PLAYERS })));
   }
+  const vs = viewers();
+  if (vs.length) sc.appendChild(h('p', { class: 'viewline', id: 'viewLine' }, icon('eye', 16), h('span', { text: 'Watching: ' + vs.join(', ') })));
+  if (S.me && !host) sc.appendChild(h('div', { class: 'row' }, btn('Just watch instead', function () { Net.watch(); }, { kind: 'ghost small', id: 'justWatch', icon: 'eye' })));
   nodes.push(sc);
   if (host) {
     if (n < PF.MAX_PLAYERS) sc.appendChild(h('div', { class: 'addbot' }, h('span', { class: 'lbl', text: 'Add a computer player' }),
@@ -768,9 +787,39 @@ function stageOverlay() {
       h('p', { class: 'ov-k', text: 'Match over' }),
       h('h2', { class: 'ov-t', id: 'winner', text: twin !== null ? teamName(twin) + ' wins the match!' : nameOf(w) + (w === S.me && !isLocal() ? ' (you!)' : '') + ' is the desk champion' }),
       twin !== null ? h('p', { class: 'ov-s', text: 'Champions: ' + mates }) : null,
-
-      scoreList(m), h('div', { class: 'ovbtns' }, buttons)));
+      scoreList(m),
+      PF.matchSummary(m).totalShots ? h('a', { class: 'sumjump', href: '#matchSummary', onclick: function (e) { e.preventDefault(); const el = document.getElementById('matchSummary'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }, 'Match summary below \u2193') : null,
+      h('div', { class: 'ovbtns' }, buttons)));
   }
+}
+/* end-of-match summary: who took how many shots, hits, knock-offs, plus awards */
+function summaryBlock(m) {
+  const sum = PF.matchSummary(m);
+  if (!sum.totalShots) return null;
+  const me = function (id) { return id === S.me && !isLocal(); };
+  const label = function (r) { return r.name + (me(r.id) ? ' (you)' : '') + (r.bot ? ' 🤖' : ''); };
+  const cols = m.teamScore ? ['Shots', 'Hits', 'KOs', 'Off'] : ['Won', 'Shots', 'Hits', 'KOs', 'Off'];
+  const table = h('table', { class: 'sumtab', id: 'summaryTable' },
+    h('thead', {}, h('tr', {}, h('th', { class: 'pn', text: 'Player' }), cols.map(function (c) { return h('th', { text: c }); }))),
+    h('tbody', {}, sum.rows.map(function (r) {
+      const cells = [];
+      if (!m.teamScore) cells.push(h('td', { class: 'won', text: String(r.score) }));
+      cells.push(h('td', { 'data-k': 'shots', text: String(r.shots) }));
+      cells.push(h('td', { text: String(r.hit) }));
+      cells.push(h('td', { class: 'kos', text: String(r.ko) }));
+      cells.push(h('td', { text: String(r.fell + r.self) }));
+      return h('tr', { class: (me(r.id) ? 'me ' : '') + (r.team !== undefined ? 't' + r.team : ''), 'data-pid': r.id },
+        h('td', { class: 'pn' }, h('span', { class: 'swatch', style: 'background:' + PF.skinById(r.skin).body }), h('span', { class: 'cn', text: label(r) })), cells);
+    })));
+  const nm = function (id) { const r = sum.rows.find(function (x) { return x.id === id; }); return r ? label(r) : ''; };
+  return h('div', { class: 'summary', id: 'matchSummary' },
+    h('p', { class: 'sumk', text: 'Match summary · ' + sum.totalShots + ' shots · ' + m.round + (m.round === 1 ? ' round' : ' rounds') }),
+    table,
+    h('p', { class: 'sumlegend', text: 'Hits: shots that touched another pen. KOs: pens knocked off. Off: times your own pen left the desk.' }),
+    sum.awards.length ? h('ul', { class: 'awards', id: 'awards' }, sum.awards.map(function (a) {
+      return h('li', { 'data-award': a.id }, h('span', { class: 'aic', text: a.icon }),
+        h('span', { class: 'atx' }, h('b', { text: a.title + ': ' + nm(a.who) }), h('span', { text: a.text })));
+    })) : null);
 }
 function settingsCard() {
   return h('details', { class: 'card case', id: 'setD' },
@@ -804,8 +853,9 @@ function gameScreen() {
   const timer = m.phase === 'aim' && d.cfg.turnSecs && d.deadline
     ? h('div', { class: 'timer' }, h('span', { class: 'tbar' }, h('span', { class: 'tfill', id: 'timerFill' })), h('span', { class: 'ttxt', id: 'timerTxt' })) : null;
   nodes.push(h('div', { class: 'status' + (shooterIsMe() && m.phase === 'aim' ? ' mine' : ''), id: 'status' }, h('span', { id: 'statusTxt', text: statusText() }), timer));
+  if (m.phase === 'over') { const sb = summaryBlock(m); if (sb) nodes.push(h('section', { class: 'card sumcard' }, sb)); }
   const tools = [];
-  if (!isLocal() && S.me) tools.push(h('div', { class: 'reacts', role: 'group', 'aria-label': 'Reactions' }, REACTIONS.map(function (e) { return h('button', { type: 'button', class: 'react', 'aria-label': 'React ' + e, onclick: function () { Net.react(e); } }, e); })));
+  if (!isLocal() && (S.me || S.conn === 'open')) tools.push(h('div', { class: 'reacts', role: 'group', 'aria-label': 'Reactions' }, REACTIONS.map(function (e) { return h('button', { type: 'button', class: 'react', 'aria-label': 'React ' + e, onclick: function () { Net.react(e); } }, e); })));
   const hostBtns = [];
   if (S.lastReplay && S.lastReplay.matchId === m.id && m.phase !== 'roll' && !REPLAY) hostBtns.push(btn('\u21ba Replay last shot', function () { startReplay(S.lastReplay); }, { kind: 'ghost', id: 'replayBtn' }));
   if (S.isHost && m.phase === 'aim' && !shooterIsMe() && !isBot(m.turn)) hostBtns.push(confirmBtn('skip', 'Skip ' + nameOf(m.turn) + '’s turn', 'Confirm: skip', hostSkip));
@@ -826,7 +876,11 @@ function roomScreen() {
   if (!d) return [roomCard(), card(h('p', { class: 'dim', id: 'loading', text: S.conn === 'failed' ? 'Could not join this room.' : 'Connecting to room ' + S.room + '…' }), btn('Back', function () { Net.leave(); }, { kind: 'ghost', id: 'backHome' }))];
   if (!d.match) return lobbyScreen();
   if (!S.me && !isLocal()) {
-    return [h('p', { class: 'watching', id: 'watching', text: 'A match is on. You’re watching; sit down when it ends.' })].concat(gameScreen());
+    const m = d.match, full = d.roster.length >= PF.MAX_PLAYERS;
+    const nodes = [h('div', { class: 'watching', id: 'watching' },
+      h('span', { text: '\ud83d\udc41 ' + (m.phase === 'over' ? (full ? 'You’re watching. The desk is full.' : 'You’re watching. Sit down to play the next match.') : 'You’re watching. ' + (full ? 'The desk is full.' : 'You can sit down when this match ends.')) }),
+      m.phase === 'over' && !full ? btn('Play next match', function () { Net.sit(cleanName(S.name) || 'Player', usableSkin(S.skin)); }, { kind: 'primary small', id: 'sitNext' }) : null)];
+    return nodes.concat(gameScreen());
   }
   return gameScreen();
 }
@@ -842,8 +896,11 @@ function renderHeader() {
   add(hdrEl,
     h('button', { type: 'button', class: 'hbrand', 'aria-label': 'Pen Fight', onclick: function () {} }, h('span', { class: 'logo', text: 'Pen Fight' })),
     chip ? h('span', { class: 'chip', id: 'chip', text: chip }) : null,
+    S.screen === 'room' && viewers().length ? h('button', { type: 'button', class: 'eyechip' + (OPEN.viewers ? ' on' : ''), id: 'eyeChip', 'aria-label': viewers().length + ' watching: ' + viewers().join(', '), 'aria-expanded': OPEN.viewers ? 'true' : 'false',
+      onclick: function () { OPEN.viewers = !OPEN.viewers; render(); } }, icon('eye', 16), h('span', { id: 'viewCount', text: String(viewers().length) })) : null,
+    S.screen === 'room' && OPEN.viewers && viewers().length ? h('div', { class: 'viewpop', id: 'viewPop' }, h('b', { text: 'Watching' }), viewers().map(function (n) { return h('span', { text: n }); })) : null,
     h('div', { class: 'htools' },
-      h('a', { class: 'iconlink', href: '../', text: 'Mafia' }),
+      S.screen === 'home' ? h('a', { class: 'iconlink', href: '../', text: 'Mafia' }) : null,
       h('button', { type: 'button', class: 'iconbtn', id: 'soundBtn', 'aria-label': S.sound ? 'Mute sound' : 'Turn sound on', 'aria-pressed': S.sound ? 'true' : 'false',
         onclick: function () { S.sound = !S.sound; store('sound', S.sound ? '1' : '0'); if (S.sound) SFX.click(); render(); } }, icon(S.sound ? 'vol' : 'mute'))));
 }
@@ -922,6 +979,7 @@ function boot() {
   if (code.length === 4) {
     if (sh && sh.room === code) { hostResume(sh); return; }
     S.joinCode = code;
+    if (store('tok.' + code) && store('watch.' + code) === '1') { clientJoin(code, cleanName(S.name), S.skin, true); return; }
     if (store('tok.' + code) && cleanName(S.name)) { clientJoin(code, S.name, S.skin); return; }
   }
   render();

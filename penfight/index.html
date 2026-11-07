@@ -154,7 +154,7 @@ input[type=text], select { min-height: 46px; padding: 9px 13px; border-radius: 1
 .desk { display: block; touch-action: none; cursor: crosshair; border-radius: 18px; }
 .stage-ov { position: absolute; inset: 0; display: none; place-items: center; padding: 12px; pointer-events: none; overflow-y: auto; }
 .stage-ov.show { display: grid; background: rgba(10, 12, 20, .5); border-radius: 18px; animation: fade .3s ease; }
-.ovcard { pointer-events: auto; width: min(340px, 100%); max-height: 100%; overflow-y: auto; background: var(--surface); color: var(--ink); border-radius: 18px; padding: 20px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; box-shadow: 0 24px 50px -20px rgba(0,0,0,.7); animation: pop .4s cubic-bezier(.2,.9,.3,1.3); }
+.ovcard { pointer-events: auto; width: min(380px, 100%); max-height: 100%; overflow-y: auto; background: var(--surface); color: var(--ink); border-radius: 18px; padding: 20px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; box-shadow: 0 24px 50px -20px rgba(0,0,0,.7); animation: pop .4s cubic-bezier(.2,.9,.3,1.3); }
 .ovcard.win > .ico { color: var(--gold); }
 .ov-k { margin: 0; font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 .ov-t { margin: 0; font-family: var(--f-hand); font-weight: 700; font-size: 40px; line-height: 1; text-wrap: balance; overflow-wrap: anywhere; }
@@ -254,6 +254,43 @@ button.teamb { cursor: pointer; min-height: 28px; }
   .heroart { height: 130px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* end-of-match summary */
+.summary { width: 100%; display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.sumk { margin: 0; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #6b6b6b); }
+.sumtab { width: 100%; border-collapse: separate; border-spacing: 0 4px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.sumtab th { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--muted, #6b6b6b); padding: 0 4px; text-align: center; }
+.sumtab th.pn, .sumtab td.pn { text-align: left; }
+.sumtab td { background: var(--bg); padding: 7px 4px; text-align: center; font-weight: 700; }
+.sumtab td:first-child { border-radius: 10px 0 0 10px; padding-left: 8px; }
+.sumtab td:last-child { border-radius: 0 10px 10px 0; padding-right: 8px; }
+.sumtab td.pn { display: flex; align-items: center; gap: 6px; font-weight: 800; min-width: 0; }
+.sumtab td.pn .cn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+.sumtab td.kos, .sumtab td.won { font-weight: 900; }
+.sumtab tr.me td { box-shadow: inset 0 2px 0 var(--gold), inset 0 -2px 0 var(--gold); }
+.sumtab tr.t0 td:first-child { box-shadow: inset 4px 0 0 #2f66d0; }
+.sumtab tr.t1 td:first-child { box-shadow: inset 4px 0 0 #d6455d; }
+.sumlegend { margin: 0; font-size: 11px; color: var(--muted, #6b6b6b); line-height: 1.35; }
+.awards { list-style: none; margin: 4px 0 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.awards li { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 12px; background: var(--bg); }
+.awards .aic { font-size: 22px; line-height: 1; }
+.awards .atx { display: flex; flex-direction: column; font-size: 13px; line-height: 1.3; }
+.awards .atx b { font-size: 14px; }
+
+/* spectators */
+.hdr { position: relative; }
+.eyechip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 99px; padding: 3px 9px 3px 7px; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; flex: none; }
+.eyechip.on { border-color: var(--accent); color: var(--accent); }
+.viewpop { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); z-index: 30; margin-top: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; box-shadow: 0 14px 30px -14px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 3px; font-size: 14px; min-width: 150px; max-height: 50vh; overflow-y: auto; }
+.viewpop b { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.viewline { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; font-size: 13px; color: var(--muted); font-weight: 700; }
+.watching { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.joinrow input { min-width: 0; }
+.joinrow #watchBtn { display: inline-flex; align-items: center; gap: 6px; }
+
+.sumjump { font-weight: 800; color: var(--accent); text-decoration: none; font-size: 14px; }
+.sumcard .summary { margin-top: 0; }
+.sumcard .sumk { text-align: center; }
 
 </style>
 </head>
@@ -2724,6 +2761,14 @@ const PF = (function () {
 
   /* ---------- match ---------- */
   function cleanName(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, 14) || 'Player'; }
+  /* per-player match stats, shown in the end-of-match summary */
+  function newStats() { return { shots: 0, hit: 0, ko: 0, self: 0, mate: 0, fell: 0, skip: 0, alive: 0, best: 0, power: 0 }; }
+  function statsOf(m, id) {
+    if (!m.stats) m.stats = {};
+    const o = m.stats[id] || (m.stats[id] = {});
+    const z = newStats(); for (const k in z) if (typeof o[k] !== 'number') o[k] = z[k];
+    return o;
+  }
   function newMatch(opts) {
     const rng = opts.rng || Math.random;
     const n = opts.players.length;
@@ -2742,7 +2787,7 @@ const PF = (function () {
       id: opts.id || ('m' + Math.floor(rng() * 1e9).toString(36)),
       cfg: cfg,
       players: opts.players.map(function (p) { const q = { id: p.id, name: cleanName(p.name), skin: skinById(p.skin).id, score: 0 }; if (cfg.teams) q.team = p.team; if (BOT_LEVELS[p.bot]) q.bot = p.bot; return q; }),
-      stats: (function () { const o = {}; opts.players.forEach(function (p) { o[p.id] = { ko: 0, self: 0, mate: 0 }; }); return o; })(),
+      stats: (function () { const o = {}; opts.players.forEach(function (p) { o[p.id] = newStats(); }); return o; })(),
       table: tableFor(n),
       teamScore: cfg.teams ? [0, 0] : null,
       teamNext: cfg.teams ? [0, 0] : null,
@@ -2851,13 +2896,14 @@ const PF = (function () {
   /* skip the current player (time ran out / left) */
   function skipTurn(m, why) {
     if (m.phase !== 'aim') return false;
+    if (m.turn) statsOf(m, m.turn).skip++;
     addLog(m, nameOf(m, m.turn) + (why || ' skipped their turn.'));
     nextTurn(m);
     return true;
   }
 
   /* after a shot settles: write poses back, eliminate, decide round / match */
-  function settle(m, poses) {
+  function settle(m, poses, sim) {
     const fell = [];
     m.pens.forEach(function (pen, i) {
       if (pen.out) return;
@@ -2866,20 +2912,27 @@ const PF = (function () {
       if (p && p.out) { pen.out = true; fell.push(pen.id); }
     });
     const shooter = m.lastShot ? m.lastShot.by : m.turn;
+    const ss = statsOf(m, shooter);
+    if (sim && sim.touched) ss.hit++;
     if (fell.length) {
+      let kos = 0;
       fell.forEach(function (id) {
         const mate = m.teamScore && teamOf(m, id) === teamOf(m, shooter);
-        if (m.stats && m.stats[shooter]) { if (id === shooter) m.stats[shooter].self++; else if (mate) m.stats[shooter].mate++; else m.stats[shooter].ko++; }
+        if (id === shooter) ss.self++; else if (mate) ss.mate++; else { ss.ko++; kos++; }
+        if (id !== shooter) statsOf(m, id).fell++;
         addLog(m, id === shooter ? nameOf(m, id) + ' flicked themselves off the desk!'
           : mate ? nameOf(m, shooter) + ' knocked their own teammate ' + nameOf(m, id) + ' off!'
           : nameOf(m, id) + ' was knocked off by ' + nameOf(m, shooter) + '.');
       });
+      if (kos > ss.best) ss.best = kos;
+      if (kos >= 2) addLog(m, nameOf(m, shooter) + ' got ' + (kos === 2 ? 'a double' : kos === 3 ? 'a triple' : 'a ' + kos + '-pen') + ' knock-off!');
     }
     const alive = alivePens(m);
+    const endRound = function () { alive.forEach(function (p) { statsOf(m, p.id).alive++; }); };
     if (m.teamScore) {
       const sides = aliveSides(m);
       if (sides.length > 1) { nextTurn(m); return { fell: fell, roundOver: false }; }
-      m.phase = 'roundover';
+      m.phase = 'roundover'; endRound();
       if (sides.length === 1) {
         const t = Number(sides[0].slice(1));
         m.teamScore[t]++;
@@ -2890,7 +2943,7 @@ const PF = (function () {
       return { fell: fell, roundOver: true };
     }
     if (alive.length <= 1) {
-      m.phase = 'roundover';
+      m.phase = 'roundover'; endRound();
       if (alive.length === 1) {
         const w = m.players.find(function (p) { return p.id === alive[0].id; });
         w.score++;
@@ -2921,6 +2974,51 @@ const PF = (function () {
     return { fell: [pid], roundOver: false };
   }
 
+  /* end-of-match summary: one row per player plus a few fun awards */
+  function matchSummary(m) {
+    const plural = function (n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); };
+    const rows = m.players.map(function (p) {
+      const st = statsOf(m, p.id);
+      return {
+        id: p.id, name: p.name, skin: p.skin, team: p.team, bot: p.bot, score: p.score,
+        shots: st.shots, hit: st.hit, ko: st.ko, self: st.self, mate: st.mate, fell: st.fell, skip: st.skip,
+        alive: st.alive, best: st.best,
+        hitPct: st.shots ? Math.round(st.hit / st.shots * 100) : 0,
+        power: st.shots ? Math.round(st.power / st.shots * 100) : 0
+      };
+    });
+    const winTeam = m.teamScore ? m.winnerTeam : null;
+    rows.sort(function (a, b) {
+      if (winTeam !== null && winTeam !== undefined && a.team !== b.team) return a.team === winTeam ? -1 : 1;
+      return (b.score - a.score) || (b.ko - a.ko) || (b.alive - a.alive) || (a.fell - b.fell) || (a.shots - b.shots);
+    });
+    const awards = [];
+    // the single best row for a metric, or null if nobody qualifies or the top is tied
+    const top = function (val, ok) {
+      const c = rows.filter(ok || function () { return true; });
+      if (!c.length) return null;
+      c.sort(function (a, b) { return val(b) - val(a); });
+      if (c.length > 1 && val(c[0]) === val(c[1])) return null;
+      return c[0];
+    };
+    const totalShots = rows.reduce(function (a, r) { return a + r.shots; }, 0);
+    if (!totalShots) return { rows: rows, awards: awards, totalShots: 0 };
+    let r;
+    r = top(function (x) { return x.best; }, function (x) { return x.best >= 2; });
+    if (r) awards.push({ id: 'multi', icon: '💥', title: r.best === 2 ? 'Double knock' : r.best === 3 ? 'Triple knock' : 'Desk clearer', who: r.id, text: plural(r.best, 'pen') + ' off in a single flick' });
+    r = top(function (x) { return x.ko / x.shots * 1000 + x.ko; }, function (x) { return x.ko >= 1 && x.shots >= 1; });
+    if (r) awards.push({ id: 'sniper', icon: '🎯', title: 'Sharpshooter', who: r.id, text: plural(r.ko, 'knock-off') + ' from ' + plural(r.shots, 'shot') });
+    r = top(function (x) { return x.alive * 1000 - x.fell; }, function (x) { return x.alive >= 1; });
+    if (r && m.round >= 2) awards.push({ id: 'survivor', icon: '🛡️', title: 'Survivor', who: r.id, text: 'still on the desk at the end of ' + plural(r.alive, 'round') });
+    r = top(function (x) { return x.shots; });
+    if (r) awards.push({ id: 'busy', icon: '🖊️', title: 'Busiest hand', who: r.id, text: plural(r.shots, 'shot') + ' taken' });
+    r = top(function (x) { return x.power; }, function (x) { return x.shots >= 2; });
+    if (r && r.power >= 60) awards.push({ id: 'power', icon: '💪', title: 'Full power', who: r.id, text: 'average flick at ' + r.power + '% power' });
+    r = top(function (x) { return x.self + x.mate; }, function (x) { return x.self + x.mate >= 1; });
+    if (r) awards.push({ id: 'oops', icon: '🙈', title: 'Oops', who: r.id, text: r.self && r.mate ? plural(r.self, 'self knock-off') + ' and ' + plural(r.mate, 'teammate') + ' knocked off' : r.self ? 'flicked themselves off ' + (r.self === 1 ? 'once' : r.self + ' times') : 'knocked off ' + plural(r.mate, 'teammate') });
+    return { rows: rows, awards: awards.slice(0, 4), totalShots: totalShots };
+  }
+
   /* ---------- physics ---------- */
   function Sim(m) {
     this.table = m.table || tableFor(m.players.length);
@@ -2943,9 +3041,14 @@ const PF = (function () {
     });
     this.out = m.pens.map(function (p) { return !!p.out; });
     this.fellNow = [];
+    this.shooter = -1; this.touched = false;
     this.world.on('post-solve', function (contact, imp) {
       const n = imp.normalImpulses[0] || 0;
       if (n > self.hits) self.hits = n;
+      if (!self.touched && self.shooter >= 0) {
+        const a = contact.getFixtureA().getBody().getUserData(), b = contact.getFixtureB().getBody().getUserData();
+        if (a !== b && (a === self.shooter || b === self.shooter)) self.touched = true;
+      }
     });
   }
   Sim.prototype.shoot = function (penIndex, shot) {
@@ -3010,8 +3113,10 @@ const PF = (function () {
     if (!s) return null;
     const idx = m.pens.findIndex(function (p) { return p.id === pid; });
     const sim = new Sim(m);
+    sim.shooter = idx;
     sim.shoot(idx, s);
     m.phase = 'roll';
+    const st = statsOf(m, pid); st.shots++; st.power = round3(st.power + s.power);
     m.lastShot = { by: pid, lx: round3(s.lx), ix: round3(s.ix), iy: round3(s.iy), power: round3(s.power), turnNo: m.turnNo };
     return sim;
   }
@@ -3022,7 +3127,7 @@ const PF = (function () {
     if (!sim) return null;
     let steps = 0;
     while (!sim.settled() && steps++ < MAX_ROLL_SECS / DT + 5) sim.step();
-    return settle(m, sim.poses(m));
+    return settle(m, sim.poses(m), sim);
   }
 
   /* where a flick would leave the pen if it hit nothing: { x, y, a, dist }. Runs the same friction as the
@@ -3124,7 +3229,7 @@ const PF = (function () {
     TABLE: TABLE, PEN: PEN, MAX_IMPULSE: MAX_IMPULSE, MAX_TRAVEL: MAX_TRAVEL, penSpec: penSpec, specOf: specOf, deskFriction: deskFriction, _resetSpecs: resetSpecs, predict: predict, impulseForPull: impulseForPull, MIN_PLAYERS: MIN_PLAYERS, MAX_PLAYERS: MAX_PLAYERS, DT: DT, SKINS: SKINS,
     skinById: skinById, defaultConfig: defaultConfig, normalizeConfig: normalizeConfig, startPositions: startPositions, onTable: onTable, tableFor: tableFor,
     newMatch: newMatch, startRound: startRound, nextTurn: nextTurn, checkShot: checkShot, skipTurn: skipTurn, settle: settle, forfeit: forfeit,
-    Sim: Sim, beginShot: beginShot, simulateShot: simulateShot, penOf: penOf, alivePens: alivePens, nameOf: nameOf, standings: standings, normAngle: normAngle
+    Sim: Sim, beginShot: beginShot, simulateShot: simulateShot, penOf: penOf, alivePens: alivePens, nameOf: nameOf, standings: standings, normAngle: normAngle, matchSummary: matchSummary, statsOf: statsOf
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = PF;
@@ -3188,6 +3293,7 @@ const ICON = {
   vol: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/>',
   mute: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>',
   wifi: '<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.3a9.5 9.5 0 0 1 13 0M8.6 15.5a5 5 0 0 1 6.8 0"/><path d="M12 19h.01"/>',
+  eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   trophy: '<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8.5 20h7"/>'
 };
 function icon(name, size) {
@@ -3384,6 +3490,7 @@ function hostHandle(rec, d) {
     if (tok.length < 8) return;
     H.conns.forEach(function (o, k) { if (o !== rec && o.token === tok) { hostSend(o, { t: 'replaced' }); try { o.conn.close(); } catch (e) { /* ignore */ } H.conns.delete(k); } });
     rec.token = tok;
+    rec.vname = cleanName(d.name) || 'Guest';
     const r = H.roster.find(function (x) { return x.token === tok; });
     rec.pid = r ? r.id : null;
     hostSend(rec, hostSnapshot(rec.pid));
@@ -3392,27 +3499,30 @@ function hostHandle(rec, d) {
   }
   if (!rec.token) return;
   if (d.t === 'sit') {
-    if (H.match) { hostSend(rec, { t: 'err', msg: 'A match is on. You can sit down when it ends.' }); return; }
+    if (H.match && H.match.phase !== 'over') { hostSend(rec, { t: 'err', msg: 'A match is on. You can sit down when it ends.' }); return; }
     let r = H.roster.find(function (x) { return x.token === rec.token; });
     if (r) { r.name = hostUniqueName(d.name, r.id); r.skin = hostUniqueSkin(d.skin, r.id); }
     else {
-      if (H.roster.length >= PF.MAX_PLAYERS) { hostSend(rec, { t: 'err', msg: 'The desk is full. Five players is the limit.' }); return; }
+      if (H.roster.length >= PF.MAX_PLAYERS) { hostSend(rec, { t: 'err', msg: 'The desk is full (five players), so you’re watching. A seat opens if someone leaves.' }); return; }
       r = { id: 'p' + randId(7), token: rec.token, name: '', skin: '' };
       r.name = hostUniqueName(d.name, r.id); r.skin = hostUniqueSkin(d.skin, r.id);
       H.roster.push(r);
       hostRebalance();
       SFX.join();
     }
-    rec.pid = r.id;
+    rec.pid = r.id; rec.vname = r.name;
     hostChanged();
     return;
   }
   if (d.t === 'leave') {
-    if (H.match || !rec.pid || rec.pid === H.myId) return;
-    H.roster = H.roster.filter(function (x) { return x.id !== rec.pid; });
-    rec.pid = null; hostChanged();
+    if ((H.match && H.match.phase !== 'over') || !rec.pid || rec.pid === H.myId) return;
+    const gone = rec.pid;
+    H.roster = H.roster.filter(function (x) { return x.id !== gone; });
+    H.conns.forEach(function (o) { if (o.pid === gone) o.pid = null; });
+    hostChanged();
     return;
   }
+  if (d.t === 'react' && !rec.pid) { const now = Date.now(); if (now - rec.lastReact < 900) return; rec.lastReact = now; hostReact('v:' + (rec.vname || 'Guest'), d.e); return; }
   if (!rec.pid) return;
   if (d.t === 'shoot') { hostShoot(rec.pid, d.s); return; }
   if (d.t === 'aim') { const now = Date.now(); if (now - rec.lastAim < 40) return; rec.lastAim = now; hostAim(rec.pid, d.a); return; }
@@ -3571,7 +3681,7 @@ function hostLoop() {
     }
     if (H.sim.settled()) {
       const simT = H.sim.t;
-      const res = PF.settle(m, H.sim.poses(m));
+      const res = PF.settle(m, H.sim.poses(m), H.sim);
       H.sim = null; H.preShot = null;
       // knock-offs get an instant replay on every screen: give it time before the next turn / round
       const replayMs = res.fell.length ? Math.min(9000, simT / REPLAY_SPEED * 1000 + 1400) : 0;
@@ -3628,10 +3738,20 @@ function hostSnapshot(pid) {
   return {
     t: 'state', you: pid || null, local: H.local, room: H.room, hostId: H.myId,
     roster: H.roster.map(function (r) { return { id: r.id, name: r.name, skin: r.skin, team: H.cfg.teams ? r.team : null, bot: r.bot || null, on: !!on[r.id] }; }),
-    cfg: H.cfg, match: m,
+    cfg: H.cfg, match: m, viewers: H.local ? [] : hostViewers(),
     deadlineIn: m && m.phase === 'aim' && H.deadline ? Math.max(0, H.deadline - Date.now()) : null,
     nextRoundIn: m && m.phase === 'roundover' ? Math.max(0, H.nextRoundAt - Date.now()) : null
   };
+}
+/* people connected to the room without a seat: they watch */
+function hostViewers() {
+  const seen = {}, out = [];
+  H.conns.forEach(function (rec) {
+    if (!rec.token || rec.pid || !rec.conn.open || seen[rec.token]) return;
+    if (H.roster.some(function (r) { return r.token === rec.token; })) return;
+    seen[rec.token] = true; out.push(rec.vname || 'Guest');
+  });
+  return out.slice(0, 50);
 }
 function hostPublish() {
   H.sendT = null;
@@ -3643,12 +3763,12 @@ function hostPublish() {
 
 /* ================= PLAYER ================= */
 const C = { peer: null, conn: null, token: '', attempts: 0, everOpen: false, lastMsg: 0, retryT: null, openT: null, hb: null };
-function clientJoin(code, name, skin) {
+function clientJoin(code, name, skin, watch) {
   S.isHost = false; S.screen = 'room'; S.room = code; S.conn = 'connecting'; S.connMsg = 'Finding room ' + code + '…';
   S.name = cleanName(name); S.skin = validSkin(skin) ? skin : '';
   store('name', S.name); if (S.skin) store('skin', S.skin);
   C.token = store('tok.' + code) || randId(16); store('tok.' + code, C.token); store('lastRoom', code);
-  C.attempts = 0; C.everOpen = false; S.wantSeat = true;
+  C.attempts = 0; C.everOpen = false; S.wantSeat = !watch; S.watchOnly = !!watch; store('watch.' + code, watch ? '1' : '');
   setHash(code);
   if (!C.hb) C.hb = setInterval(clientHeartbeat, 4000);
   clientStartPeer();
@@ -3705,7 +3825,7 @@ function clientConnect() {
     clearTimeout(C.openT);
     C.everOpen = true; C.attempts = 0; C.lastMsg = Date.now();
     S.conn = 'open'; S.connMsg = '';
-    conn.send({ t: 'hello', token: C.token, v: 1 });
+    conn.send({ t: 'hello', token: C.token, v: 1, name: S.name || '' });
     render();
   });
   conn.on('data', function (d) { if (conn !== C.conn) return; C.lastMsg = Date.now(); try { clientHandle(d); } catch (e) { console.warn(e); } });
@@ -3747,7 +3867,7 @@ function clientHandle(d) {
   if (d.t === 'state') {
     applyState(d);
     if (S.me) S.wantSeat = false;
-    if (S.wantSeat && !d.match && !S.me && S.name) { S.wantSeat = false; clientSend({ t: 'sit', name: S.name, skin: S.skin }); }
+    if (S.wantSeat && (!d.match || d.match.phase === 'over') && !S.me && S.name) { S.wantSeat = false; clientSend({ t: 'sit', name: S.name, skin: S.skin }); }
     return;
   }
   if (d.t === 'f') { onFrame(d); return; }
@@ -3820,7 +3940,9 @@ const Net = {
     clientSend({ t: 'aim', a: a });
   },
   react: function (e) { if (S.isHost) { if (!H.local) hostReact(H.myId, e); } else clientSend({ t: 'react', e: e }); },
+  watch: function () { S.wantSeat = false; S.watchOnly = true; if (S.room) store('watch.' + S.room, '1'); if (!S.isHost) clientSend({ t: 'leave' }); },
   sit: function (name, skin) {
+    S.wantSeat = false; S.watchOnly = false; if (S.room) store('watch.' + S.room, '');
     S.name = cleanName(name); S.skin = skin; store('name', S.name); if (validSkin(skin)) store('skin', skin);
     if (!S.isHost) clientSend({ t: 'sit', name: S.name, skin: skin });
   },
@@ -3867,6 +3989,7 @@ function teamBadge(t, onClick) {
     ? h('button', { type: 'button', class: 'teamb t' + t, 'aria-label': 'Team ' + lab + '. Tap to switch', 'data-team': String(t), onclick: onClick }, lab)
     : h('em', { class: 'teamb t' + t, 'data-team': String(t), text: lab });
 }
+function viewers() { return (S.st && Array.isArray(S.st.viewers)) ? S.st.viewers : []; }
 function isBot(id) { const m = match(); const p = m && m.players.find(function (q) { return q.id === id; }); return !!(p && p.bot); }
 function shooterIsMe() { const m = match(); return !!m && !isBot(m.turn) && (isLocal() || m.turn === S.me); }
 function canShoot() { const m = match(); return !!m && !REPLAY && m.phase === 'aim' && shooterIsMe() && (isLocal() || S.conn === 'open'); }
@@ -4217,6 +4340,15 @@ function drawDesk() {
   S.floats = S.floats.filter(function (f) { return now - f.t < 1800; });
   ctx.font = '30px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
   S.floats.forEach(function (f, j) {
+    if (typeof f.pid === 'string' && f.pid.slice(0, 2) === 'v:') {
+      const e = (now - f.t) / 1800, x = s.w * (0.2 + ((j * 37 + f.pid.length * 13) % 60) / 100), y = 70 + e * 40;
+      ctx.globalAlpha = 1 - e * e;
+      ctx.fillText(f.e, x, y);
+      ctx.font = '800 11px "Nunito", system-ui, sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.fillText('\ud83d\udc41 ' + f.pid.slice(2), x, y + 18);
+      ctx.font = '30px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
+      ctx.globalAlpha = 1;
+      return;
+    }
     const i = m.pens.findIndex(function (q) { return q.id === f.pid; });
     const p = poses[i] || { x: 0, y: 0 };
     const sp = toScreen(p.x, p.y), e = (now - f.t) / 1800;
@@ -4403,7 +4535,13 @@ function homeScreen() {
     const c = cleanCode(S.joinCode);
     if (c.length !== 4) { setErr('Room codes have 4 letters.'); return; }
     clientJoin(c, nm, usableSkin(S.skin));
-  } }, codeIn, h('button', { class: 'btn primary', type: 'submit', id: 'joinBtn' }, 'Join room'));
+  } }, codeIn, h('button', { class: 'btn primary', type: 'submit', id: 'joinBtn' }, 'Join room'),
+    h('button', { class: 'btn ghost', type: 'button', id: 'watchBtn', 'aria-label': 'Watch the room without playing', onclick: function () {
+      const c = cleanCode(S.joinCode);
+      if (c.length !== 4) { setErr('Type the 4-letter room code to watch.'); return; }
+      S.err = ''; const nm = cleanName(S.name); if (nm) store('name', nm);
+      clientJoin(c, nm, usableSkin(S.skin), true);
+    } }, icon('eye', 18), 'Watch'));
   const create = btn('Create a room', function () { const nm = need(); if (!nm) return; hostCreate(nm, usableSkin(S.skin)); }, { kind: invited ? 'ghost' : 'primary big', id: 'createBtn' });
   if (invited) nodes.push(card(h('h3', { text: 'Join room' }), joinForm, h('p', { class: 'hint', text: 'Or start your own:' }), create));
   else nodes.push(card(h('h3', { text: 'Play online' }), create, h('div', { class: 'or' }, h('span', { text: 'or join friends' })), joinForm));
@@ -4505,11 +4643,14 @@ function lobbyScreen() {
     h('p', { class: 'dim', text: n < 2 ? 'Waiting for a friend, or add a computer player.' : 'Ready to fight. More can still join.' }), h('div', { class: 'seats' }, seats));
   if (!S.me && !host) {
     const taken = {}; roster.forEach(function (r) { taken[r.skin] = true; });
-    sc.appendChild(h('div', { class: 'sitbox' }, h('h3', { text: 'Take a seat' }),
+    sc.appendChild(h('div', { class: 'sitbox' }, h('p', { class: 'watching', id: 'watching', text: '\ud83d\udc41 You’re watching this room. Take a seat to play.' }), h('h3', { text: 'Take a seat' }),
       h('input', { id: 'sitName', type: 'text', maxlength: '14', placeholder: 'Your name', 'aria-label': 'Your name', value: S.name, oninput: function (e) { S.name = e.target.value; } }),
       skinPicker('sitSkin', S.skin, taken, function (sk) { S.skin = sk; render(); }),
       btn('Sit down', function () { if (!cleanName(S.name)) { setErr('Type your name first.'); return; } Net.sit(S.name, usableSkin(S.skin)); }, { kind: 'primary', id: 'sitBtn', disabled: n >= PF.MAX_PLAYERS })));
   }
+  const vs = viewers();
+  if (vs.length) sc.appendChild(h('p', { class: 'viewline', id: 'viewLine' }, icon('eye', 16), h('span', { text: 'Watching: ' + vs.join(', ') })));
+  if (S.me && !host) sc.appendChild(h('div', { class: 'row' }, btn('Just watch instead', function () { Net.watch(); }, { kind: 'ghost small', id: 'justWatch', icon: 'eye' })));
   nodes.push(sc);
   if (host) {
     if (n < PF.MAX_PLAYERS) sc.appendChild(h('div', { class: 'addbot' }, h('span', { class: 'lbl', text: 'Add a computer player' }),
@@ -4613,9 +4754,39 @@ function stageOverlay() {
       h('p', { class: 'ov-k', text: 'Match over' }),
       h('h2', { class: 'ov-t', id: 'winner', text: twin !== null ? teamName(twin) + ' wins the match!' : nameOf(w) + (w === S.me && !isLocal() ? ' (you!)' : '') + ' is the desk champion' }),
       twin !== null ? h('p', { class: 'ov-s', text: 'Champions: ' + mates }) : null,
-
-      scoreList(m), h('div', { class: 'ovbtns' }, buttons)));
+      scoreList(m),
+      PF.matchSummary(m).totalShots ? h('a', { class: 'sumjump', href: '#matchSummary', onclick: function (e) { e.preventDefault(); const el = document.getElementById('matchSummary'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }, 'Match summary below \u2193') : null,
+      h('div', { class: 'ovbtns' }, buttons)));
   }
+}
+/* end-of-match summary: who took how many shots, hits, knock-offs, plus awards */
+function summaryBlock(m) {
+  const sum = PF.matchSummary(m);
+  if (!sum.totalShots) return null;
+  const me = function (id) { return id === S.me && !isLocal(); };
+  const label = function (r) { return r.name + (me(r.id) ? ' (you)' : '') + (r.bot ? ' 🤖' : ''); };
+  const cols = m.teamScore ? ['Shots', 'Hits', 'KOs', 'Off'] : ['Won', 'Shots', 'Hits', 'KOs', 'Off'];
+  const table = h('table', { class: 'sumtab', id: 'summaryTable' },
+    h('thead', {}, h('tr', {}, h('th', { class: 'pn', text: 'Player' }), cols.map(function (c) { return h('th', { text: c }); }))),
+    h('tbody', {}, sum.rows.map(function (r) {
+      const cells = [];
+      if (!m.teamScore) cells.push(h('td', { class: 'won', text: String(r.score) }));
+      cells.push(h('td', { 'data-k': 'shots', text: String(r.shots) }));
+      cells.push(h('td', { text: String(r.hit) }));
+      cells.push(h('td', { class: 'kos', text: String(r.ko) }));
+      cells.push(h('td', { text: String(r.fell + r.self) }));
+      return h('tr', { class: (me(r.id) ? 'me ' : '') + (r.team !== undefined ? 't' + r.team : ''), 'data-pid': r.id },
+        h('td', { class: 'pn' }, h('span', { class: 'swatch', style: 'background:' + PF.skinById(r.skin).body }), h('span', { class: 'cn', text: label(r) })), cells);
+    })));
+  const nm = function (id) { const r = sum.rows.find(function (x) { return x.id === id; }); return r ? label(r) : ''; };
+  return h('div', { class: 'summary', id: 'matchSummary' },
+    h('p', { class: 'sumk', text: 'Match summary · ' + sum.totalShots + ' shots · ' + m.round + (m.round === 1 ? ' round' : ' rounds') }),
+    table,
+    h('p', { class: 'sumlegend', text: 'Hits: shots that touched another pen. KOs: pens knocked off. Off: times your own pen left the desk.' }),
+    sum.awards.length ? h('ul', { class: 'awards', id: 'awards' }, sum.awards.map(function (a) {
+      return h('li', { 'data-award': a.id }, h('span', { class: 'aic', text: a.icon }),
+        h('span', { class: 'atx' }, h('b', { text: a.title + ': ' + nm(a.who) }), h('span', { text: a.text })));
+    })) : null);
 }
 function settingsCard() {
   return h('details', { class: 'card case', id: 'setD' },
@@ -4649,8 +4820,9 @@ function gameScreen() {
   const timer = m.phase === 'aim' && d.cfg.turnSecs && d.deadline
     ? h('div', { class: 'timer' }, h('span', { class: 'tbar' }, h('span', { class: 'tfill', id: 'timerFill' })), h('span', { class: 'ttxt', id: 'timerTxt' })) : null;
   nodes.push(h('div', { class: 'status' + (shooterIsMe() && m.phase === 'aim' ? ' mine' : ''), id: 'status' }, h('span', { id: 'statusTxt', text: statusText() }), timer));
+  if (m.phase === 'over') { const sb = summaryBlock(m); if (sb) nodes.push(h('section', { class: 'card sumcard' }, sb)); }
   const tools = [];
-  if (!isLocal() && S.me) tools.push(h('div', { class: 'reacts', role: 'group', 'aria-label': 'Reactions' }, REACTIONS.map(function (e) { return h('button', { type: 'button', class: 'react', 'aria-label': 'React ' + e, onclick: function () { Net.react(e); } }, e); })));
+  if (!isLocal() && (S.me || S.conn === 'open')) tools.push(h('div', { class: 'reacts', role: 'group', 'aria-label': 'Reactions' }, REACTIONS.map(function (e) { return h('button', { type: 'button', class: 'react', 'aria-label': 'React ' + e, onclick: function () { Net.react(e); } }, e); })));
   const hostBtns = [];
   if (S.lastReplay && S.lastReplay.matchId === m.id && m.phase !== 'roll' && !REPLAY) hostBtns.push(btn('\u21ba Replay last shot', function () { startReplay(S.lastReplay); }, { kind: 'ghost', id: 'replayBtn' }));
   if (S.isHost && m.phase === 'aim' && !shooterIsMe() && !isBot(m.turn)) hostBtns.push(confirmBtn('skip', 'Skip ' + nameOf(m.turn) + '’s turn', 'Confirm: skip', hostSkip));
@@ -4671,7 +4843,11 @@ function roomScreen() {
   if (!d) return [roomCard(), card(h('p', { class: 'dim', id: 'loading', text: S.conn === 'failed' ? 'Could not join this room.' : 'Connecting to room ' + S.room + '…' }), btn('Back', function () { Net.leave(); }, { kind: 'ghost', id: 'backHome' }))];
   if (!d.match) return lobbyScreen();
   if (!S.me && !isLocal()) {
-    return [h('p', { class: 'watching', id: 'watching', text: 'A match is on. You’re watching; sit down when it ends.' })].concat(gameScreen());
+    const m = d.match, full = d.roster.length >= PF.MAX_PLAYERS;
+    const nodes = [h('div', { class: 'watching', id: 'watching' },
+      h('span', { text: '\ud83d\udc41 ' + (m.phase === 'over' ? (full ? 'You’re watching. The desk is full.' : 'You’re watching. Sit down to play the next match.') : 'You’re watching. ' + (full ? 'The desk is full.' : 'You can sit down when this match ends.')) }),
+      m.phase === 'over' && !full ? btn('Play next match', function () { Net.sit(cleanName(S.name) || 'Player', usableSkin(S.skin)); }, { kind: 'primary small', id: 'sitNext' }) : null)];
+    return nodes.concat(gameScreen());
   }
   return gameScreen();
 }
@@ -4687,8 +4863,11 @@ function renderHeader() {
   add(hdrEl,
     h('button', { type: 'button', class: 'hbrand', 'aria-label': 'Pen Fight', onclick: function () {} }, h('span', { class: 'logo', text: 'Pen Fight' })),
     chip ? h('span', { class: 'chip', id: 'chip', text: chip }) : null,
+    S.screen === 'room' && viewers().length ? h('button', { type: 'button', class: 'eyechip' + (OPEN.viewers ? ' on' : ''), id: 'eyeChip', 'aria-label': viewers().length + ' watching: ' + viewers().join(', '), 'aria-expanded': OPEN.viewers ? 'true' : 'false',
+      onclick: function () { OPEN.viewers = !OPEN.viewers; render(); } }, icon('eye', 16), h('span', { id: 'viewCount', text: String(viewers().length) })) : null,
+    S.screen === 'room' && OPEN.viewers && viewers().length ? h('div', { class: 'viewpop', id: 'viewPop' }, h('b', { text: 'Watching' }), viewers().map(function (n) { return h('span', { text: n }); })) : null,
     h('div', { class: 'htools' },
-      h('a', { class: 'iconlink', href: '../', text: 'Mafia' }),
+      S.screen === 'home' ? h('a', { class: 'iconlink', href: '../', text: 'Mafia' }) : null,
       h('button', { type: 'button', class: 'iconbtn', id: 'soundBtn', 'aria-label': S.sound ? 'Mute sound' : 'Turn sound on', 'aria-pressed': S.sound ? 'true' : 'false',
         onclick: function () { S.sound = !S.sound; store('sound', S.sound ? '1' : '0'); if (S.sound) SFX.click(); render(); } }, icon(S.sound ? 'vol' : 'mute'))));
 }
@@ -4767,6 +4946,7 @@ function boot() {
   if (code.length === 4) {
     if (sh && sh.room === code) { hostResume(sh); return; }
     S.joinCode = code;
+    if (store('tok.' + code) && store('watch.' + code) === '1') { clientJoin(code, cleanName(S.name), S.skin, true); return; }
     if (store('tok.' + code) && cleanName(S.name)) { clientJoin(code, S.name, S.skin); return; }
   }
   render();

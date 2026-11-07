@@ -95,6 +95,12 @@ The last-bench classic, online for 2 to 5 friends. Everyone has a pen on the sam
   - There are three levels: Easy, Normal and Hard. The host taps a bot's badge in the lobby to change its level.
   - Bots aren't predictable. Each one tries dozens of shots in a quick simulation, picks among the good ones with some randomness, and then has a slightly shaky hand. Easy bots take more risks and miss more often.
 - **Instant replays:** whenever a pen goes off the desk, everyone sees the shot again in slow motion, with the camera zoomed on the action. Tap to skip, or use "Replay last shot" at any time. Replays can be turned off in the pencil case.
+- **Match summary:** when a match ends, everyone gets a table under the desk with each player's shots, hits (shots that touched another pen), knock-offs and falls. It also gives a few awards, such as 🎯 Sharpshooter, 🛡️ Survivor, 💥 Double knock, 💪 Full power and 🙈 Oops.
+- **Spectators:**
+  - Anyone with the code or link can tap **Watch** instead of Join to follow the match live without a seat. A seated player can also switch to "Just watch instead" in the lobby.
+  - An 👁 counter at the top shows how many people are watching; tap it to see their names.
+  - Viewers can send reactions, which float across the top of the desk with their name. When a match ends, a viewer can tap "Play next match" to join the rematch if a seat is free.
+  - Someone who opens the link while a match is on, or finds the desk full, watches until a seat opens.
 - **What everyone sees:** the shooter's aim arrow appears live on every screen, and the shot plays out on all phones at once. You can send reactions (😂 😱 🔥 👏 😤 💀) during play.
 - **Host options:** free-for-all or teams, first to 1, 2, 3 or 5 rounds, and a turn timer (off, 20, 30 or 45 seconds). Offline players' turns are skipped automatically, and the host can skip a turn or remove someone who left.
 - **One device:** 2 to 5 players can pass one phone around or share a laptop, with teams available for 3 or more.

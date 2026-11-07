@@ -11,7 +11,7 @@ const strip = (s) => s.replace(/\/\/# sourceMappingURL=.*$/mg, '');
 const peer = strip(vendor('peerjs.min.js'));
 const qr = vendor('qrcode.js');
 const game = r('src/words.js') + '\n' + r('src/game.js');
-const app = ['src/core.js', 'src/net.js', 'src/draw.js', 'src/ui.js'].map(r).join('\n');
+const app = ['src/core.js', 'src/net.js', 'src/draw.js', 'src/sketch.js', 'src/bots.js', 'src/ui.js'].map(r).join('\n');
 for (const [n, s] of [['peer', peer], ['qr', qr], ['game', game], ['app', app]]) if (/<\/script/i.test(s)) throw new Error('</script> inside ' + n);
 new Function('"use strict";' + app);
 const out = r('src/index.tpl.html')

@@ -203,5 +203,8 @@ test('suggestions avoid used words and come from every pack', () => {
   assert.strictEqual(s.length, 3); assert.ok(s.every(x => x.word && x.category));
   PC.WORDS.all.forEach(w => assert.strictEqual(PC.checkWord(w.word, w.category, ''), null, w.word));
 });
+test('a game can choose which team starts (the demo starts with yours)', () => {
+  for (const ft of [0, 1]) { const g = PC.newGame({ players: P(4), rng: seeded(30 + ft), now: 0, firstTeam: ft }); assert.strictEqual(g.turn.team, ft); }
+});
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

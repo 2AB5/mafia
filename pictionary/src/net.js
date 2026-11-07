@@ -14,7 +14,7 @@ const MAX_OPS = 8000, MAX_POINTS = 120000;
 
 /* ================= HOST ================= */
 const H = {
-  peer: null, room: '', myId: '', myToken: '', roster: [], cfg: PC.defaultConfig(), game: null,
+  local: false, peer: null, room: '', myId: '', myToken: '', roster: [], cfg: PC.defaultConfig(), game: null,
   ops: [], opsKey: '', points: 0, chat: [], chatId: 0, offlineSince: {},
   conns: new Map(), sendT: null, loop: null, hb: null, attempt: 0, fresh: true
 };
@@ -34,6 +34,25 @@ function hostCreate(name) {
   H.roster = [{ id: H.myId, token: H.myToken, name: cleanName(name) || 'Host', team: 0 }];
   H.cfg = PC.defaultConfig(); H.game = null; H.ops = []; H.opsKey = ''; H.chat = []; H.fresh = true; H.attempt = 0;
   hostBoot();
+}
+/* demo: you and a computer teammate against two computer players, all on this phone */
+function demoStart(name) {
+  H.local = true; H.peer = null; H.conns.clear();
+  H.room = ''; H.myToken = ''; H.myId = 'p' + randId(7);
+  const names = Bots.NAMES.slice().sort(function () { return secureRng() - 0.5; });
+  const me = cleanName(name) || 'You';
+  H.roster = [
+    { id: 'b' + randId(6), token: '', name: names[0], team: 0, bot: true },
+    { id: H.myId, token: '', name: me, team: 0 },
+    { id: 'b' + randId(6), token: '', name: names[1], team: 1, bot: true },
+    { id: 'b' + randId(6), token: '', name: names[2], team: 1, bot: true }
+  ];
+  H.cfg = PC.normalizeConfig({ rounds: 1, drawSecs: 80, chooseSecs: 40, letterHints: true });
+  H.game = null; H.ops = []; H.opsKey = ''; H.chat = [];
+  S.isHost = true; S.demo = true; S.screen = 'room'; S.room = ''; S.me = H.myId; S.conn = 'open'; S.connMsg = '';
+  Bots.reset();
+  hostEnsureLoop();
+  hostStart();
 }
 function hostResume(saved) {
   H.room = saved.room; H.myId = saved.myId; H.myToken = saved.myToken; H.roster = saved.roster || [];
@@ -197,7 +216,7 @@ function hostStart() {
   const why = startProblem();
   if (why) { setErr(why); return; }
   try {
-    H.game = PC.newGame({ players: H.roster.map(function (r) { return { id: r.id, name: r.name, team: r.team }; }), cfg: H.cfg, rng: secureRng, now: Date.now() });
+    H.game = PC.newGame({ players: H.roster.map(function (r) { return { id: r.id, name: r.name, team: r.team }; }), cfg: H.cfg, rng: secureRng, now: Date.now(), firstTeam: H.local ? 0 : undefined });
   } catch (e) { setErr(e.message); return; }
   H.offlineSince = {};
   H.chat = []; H.chatId = 0;
@@ -216,8 +235,9 @@ function hostNewBoard() {
 function hostWord(pid, w, rec) {
   const g = H.game;
   if (!g || !w || typeof w !== 'object') return;
+  if (H.local && g.turn && Bots.isBot(g.turn.drawer) && !Sketch.find(w.word)) { const m = 'Pick one of the suggested words: those are the ones ' + PC.nameOf(g, g.turn.drawer) + ' knows how to draw.'; if (rec) hostSend(rec, { t: 'err', msg: m }); else if (pid === H.myId) toast(m); return; }
   const err = PC.setWord(g, pid, { word: String(w.word || '').slice(0, 40), category: String(w.category || '').slice(0, 24), hint: String(w.hint || '').slice(0, 80) }, Date.now());
-  if (err) { if (rec) hostSend(rec, { t: 'err', msg: err }); else toast(err); return; }
+  if (err) { if (rec) hostSend(rec, { t: 'err', msg: err }); else if (pid === H.myId) toast(err); return; }
   hostSys(PC.nameOf(g, pid) + ' set the word. ' + PC.nameOf(g, g.turn.drawer) + ', start drawing!');
   hostNewBoard();
   hostChanged();
@@ -283,7 +303,7 @@ function hostSay(pid, vname, text, teamOnly, rec) {
   if (!live) { hostPush({ k: 'chat', f: pid, n: name, tt: team, x: x, to: teamOnly && team !== null ? team : undefined }); return; }
   const before = g.phase, turn = g.turn;
   const res = PC.say(g, pid, x, Date.now());
-  const priv = function (m) { m.to = pid; m.id = 0; m.at = Date.now(); if (rec) hostSend(rec, { t: 'chat', m: m }); else onChat(m); };
+  const priv = function (m) { m.to = pid; m.id = 0; m.at = Date.now(); if (rec) hostSend(rec, { t: 'chat', m: m }); else if (pid === H.myId) onChat(m); };
   if (res.kind === 'ignored') return;
   if (res.kind === 'blocked') { priv({ k: 'blocked', f: pid, n: name, tt: team, x: x, why: res.why }); return; }
   if (res.kind === 'correct') {
@@ -306,6 +326,7 @@ function hostSay(pid, vname, text, teamOnly, rec) {
 function hostOnline() {
   const on = {};
   on[H.myId] = true;
+  H.roster.forEach(function (r) { if (r.bot) on[r.id] = true; });
   H.conns.forEach(function (rec) { if (rec.pid && rec.conn.open) on[rec.pid] = true; });
   return on;
 }
@@ -328,6 +349,7 @@ function hostLoop() {
       return;
     }
   }
+  if (H.local) { try { Bots.tick(g, now); } catch (e) { console.warn(e); } if (g.phase === 'over') return; }
   const prevTurn = g.turnNo, prevPhase = g.phase;
   const ev = PC.tick(g, now, secureRng, online);
   if (!ev.length) return;
@@ -367,12 +389,13 @@ function hostEndGame() {
   hostChanged();
 }
 function hostRematch() { if (!H.game || H.game.phase !== 'over') return; hostStart(); }
-function hostToLobby() { H.game = null; H.ops = []; H.opsKey = ''; hostChanged(); }
+function hostToLobby() { if (H.local) { hostClose(); return; } H.game = null; H.ops = []; H.opsKey = ''; hostChanged(); }
 function hostClose() {
   try { if (H.peer) H.peer.destroy(); } catch (e) { /* ignore */ }
   H.peer = null; H.conns.clear(); H.game = null;
   clearInterval(H.loop); clearInterval(H.hb); H.loop = null; H.hb = null;
-  storeJSON('host', null);
+  if (!H.local) storeJSON('host', null);
+  H.local = false; S.demo = false;
   S.isHost = false;
   resetRoomState();
 }
@@ -380,7 +403,7 @@ function hostChanged() { hostSaveSoon(); hostPublishSoon(); }
 let saveT = null;
 function hostSaveSoon() { if (!saveT) saveT = setTimeout(function () { saveT = null; hostSave(); }, 400); }
 function hostSave() {
-  if (!S.isHost || !H.room) return;
+  if (!S.isHost || !H.room || H.local) return;
   storeJSON('host', { room: H.room, myId: H.myId, myToken: H.myToken, roster: H.roster, cfg: H.cfg, game: H.game, ops: H.ops, opsKey: H.opsKey, chat: H.chat.slice(-60), savedAt: Date.now() });
 }
 function hostPublishSoon() { if (!H.sendT) H.sendT = setTimeout(hostPublish, 0); }
@@ -406,7 +429,7 @@ function hostSnapshot(pid) {
   }
   return {
     t: 'state', you: pid || null, room: H.room, hostId: H.myId,
-    roster: H.roster.map(function (r) { return { id: r.id, name: r.name, team: r.team, on: !!on[r.id] }; }),
+    roster: H.roster.map(function (r) { return { id: r.id, name: r.name, team: r.team, on: !!on[r.id], bot: !!r.bot }; }),
     cfg: H.cfg, game: v, clock: clock, viewers: hostViewers(), opsKey: H.opsKey
   };
 }

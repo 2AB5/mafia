@@ -124,7 +124,7 @@ const PC = (function () {
       teamScore: [0, 0],
       stats: {},
       next: [0, 0],                       // whose turn to draw next, per team
-      firstTeam: rng() < 0.5 ? 0 : 1,
+      firstTeam: opts.firstTeam === 0 || opts.firstTeam === 1 ? opts.firstTeam : rng() < 0.5 ? 0 : 1,
       turnNo: 0,
       totalTurns: 2 * cfg.rounds * Math.max(size[0], size[1]),
       phase: 'choose',                    // 'choose' | 'draw' | 'reveal' | 'over'

@@ -5,7 +5,8 @@ let root, hdrEl, connEl, mainEl, toastEl;
 function st() { return S.st; }
 function game() { return S.st && S.st.game; }
 function rosterEntry(id) { return S.st && S.st.roster ? S.st.roster.find(function (r) { return r.id === id; }) : null; }
-function nameOf(id) { const g = game(); if (g) return PC.nameOf(g, id); const r = rosterEntry(id); return r ? r.name : 'Player'; }
+function botTag(id) { const r = rosterEntry(id); return r && r.bot ? ' 🤖' : ''; }
+function nameOf(id) { const g = game(); const r = rosterEntry(id); return (g ? PC.nameOf(g, id) : r ? r.name : 'Player') + botTag(id); }
 function meP() { const g = game(); return g && S.me ? g.players.find(function (p) { return p.id === S.me && !p.left; }) || null : null; }
 function viewers() { return (S.st && Array.isArray(S.st.viewers)) ? S.st.viewers : []; }
 function teamName(t) { return PC.TEAMS[t].name; }
@@ -80,8 +81,11 @@ function homeScreen() {
   const create = btn('Create a room', function () { const nm = need(); if (!nm) return; hostCreate(nm); }, { kind: invited ? 'ghost' : 'primary big', id: 'createBtn' });
   nodes.push(h('section', { class: 'card' }, h('h2', { text: invited ? 'You’re invited to room ' + S.joinCode : 'Who’s playing?' }),
     h('label', { class: 'lbl', for: 'nameIn', text: 'Name' }), nameIn));
+  const demo = h('section', { class: 'card demo', id: 'demoCard' }, h('h3', { text: 'Try it now' }),
+    h('p', {}, 'Play a demo game against the computer: you and ', h('b', { text: 'one robot teammate' }), ' versus ', h('b', { text: 'two robots' }), '. Four turns: guess your teammate’s drawing, pick words for the other team, and draw one yourself.'),
+    btn('Play a demo game', function () { const nm = cleanName(S.name) || 'You'; S.err = ''; store('name', nm === 'You' ? '' : nm); demoStart(nm); }, { kind: 'primary', id: 'demoBtn' }));
   if (invited) nodes.push(card(h('h3', { text: 'Join room' }), joinForm, h('p', { class: 'hint', text: 'Or start your own:' }), create));
-  else nodes.push(card(h('h3', { text: 'Play online' }), create, h('div', { class: 'or' }, h('span', { text: 'or join friends' })), joinForm));
+  else { nodes.push(demo); nodes.push(card(h('h3', { text: 'Play online' }), create, h('div', { class: 'or' }, h('span', { text: 'or join friends' })), joinForm)); }
   nodes.push(howCard(true));
   nodes.push(h('p', { class: 'moregames' }, 'More games for your group: ', h('a', { href: '../', text: 'Mafia' }), ' · ', h('a', { href: '../penfight/', text: 'Pen Fight' })));
   return nodes;
@@ -94,7 +98,8 @@ function howCard(open) {
       h('li', {}, 'The ', h('b', { text: 'other team' }), ' types the word, picks its category and can add a hint. Stuck? Tap a suggestion.'),
       h('li', {}, 'Guessers see the category and blanks for each letter. The hint unlocks a third of the way in, and a few letters show near the end.'),
       h('li', {}, 'Guess fast for up to ' + PC.GUESS_MAX + ' points. If nobody gets it, the word-setters score ' + PC.STUMP_POINTS + '. The drawer can pass on one unfair word in the first 15 seconds.'),
-      h('li', {}, 'The setting team can tease in the chat, but any message containing the word is blocked. Whisper with “Team only”.')));
+      h('li', {}, 'The setting team can tease in the chat, but any message containing the word is blocked. Whisper with “Team only”.'),
+      h('li', { id: 'howWin' }, h('b', { text: 'Who wins: ' }), 'the team with the most points after every turn. A correct guess earns the drawing team 50 to 100 points (the faster, the more: half the time left gives 75). If nobody gets it, the team that set the word earns ' + PC.STUMP_POINTS + '. Everyone draws once per round, and both teams get the same number of turns. Equal points is a tie.')));
 }
 function joinUrl() { return location.origin + location.pathname + '#' + S.room; }
 function copyLink() {
@@ -240,11 +245,14 @@ function toolsBar() {
 }
 function chooseForm(g) {
   const t = g.turn, F = S.form;
-  const sug = F.sugg || (F.sugg = PC.suggest(secureRng, 3));
+  const forBot = S.demo && !!(rosterEntry(t.drawer) || {}).bot;
+  const botPick = function () { const l = Sketch.LIB.filter(function (x) { return g.history.every(function (hh) { return PC.compact(hh.word || '') !== PC.compact(x.word); }); }).sort(function () { return Math.random() - 0.5; }); return l.slice(0, 6).map(function (x) { return { word: x.word, category: x.category, hint: x.hint }; }); };
+  const sug = F.sugg || (F.sugg = forBot ? botPick() : PC.suggest(secureRng, 3));
   const cats = PC.CATEGORIES;
   const catOn = function (c) { return F.category === c; };
   const send = function () {
     const category = F.category === 'Other' ? F.custom : F.category;
+    if (forBot && !Sketch.find(F.word)) { toast('Pick one of the suggested words: those are the ones ' + nameOf(t.drawer) + ' can draw.'); return; }
     const err = PC.checkWord(F.word, category, F.hint);
     if (err) { toast(err); return; }
     Net.word({ word: F.word, category: category, hint: F.hint });
@@ -254,9 +262,9 @@ function chooseForm(g) {
     h('h2', { class: 'ov-t', text: 'What should ' + nameOf(t.drawer) + ' draw?' }),
     h('label', { class: 'lbl', for: 'wordIn', text: 'Word or phrase' }),
     h('input', { id: 'wordIn', type: 'text', maxlength: '30', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', placeholder: 'e.g. pani puri', value: F.word, oninput: function (e) { F.word = e.target.value; } }),
-    h('div', { class: 'sugg', id: 'sugg' }, h('span', { class: 'lbl', text: 'Need ideas?' }),
-      sug.map(function (s, i) { return h('button', { type: 'button', class: 'sg', 'data-sugg': String(i), onclick: function () { F.word = s.word; F.category = cats.indexOf(s.category) !== -1 ? s.category : 'Other'; F.custom = cats.indexOf(s.category) !== -1 ? '' : s.category; render(); } }, s.word, h('small', { text: s.category })); }),
-      h('button', { type: 'button', class: 'sg more', id: 'moreSugg', 'aria-label': 'More suggestions', onclick: function () { F.sugg = PC.suggest(secureRng, 3); render(); } }, '🔀')),
+    h('div', { class: 'sugg', id: 'sugg' }, h('span', { class: 'lbl', text: forBot ? nameOf(t.drawer) + ' can draw these (demo):' : 'Need ideas?' }),
+      sug.map(function (s, i) { return h('button', { type: 'button', class: 'sg', 'data-sugg': String(i), onclick: function () { F.word = s.word; F.category = cats.indexOf(s.category) !== -1 ? s.category : 'Other'; F.custom = cats.indexOf(s.category) !== -1 ? '' : s.category; if (forBot && s.hint && !F.hint) F.hint = s.hint; render(); } }, s.word, h('small', { text: s.category })); }),
+      h('button', { type: 'button', class: 'sg more', id: 'moreSugg', 'aria-label': 'More suggestions', onclick: function () { F.sugg = forBot ? botPick() : PC.suggest(secureRng, 3); render(); } }, '🔀')),
     h('span', { class: 'lbl', text: 'Category (everyone sees this)' }),
     h('div', { class: 'cats', id: 'cats' }, cats.concat(['Other']).map(function (c) {
       return h('button', { type: 'button', class: 'catb' + (catOn(c) ? ' on' : ''), 'data-cat': c, 'aria-pressed': catOn(c) ? 'true' : 'false', onclick: function () { F.category = c; render(); } }, c);
@@ -265,7 +273,7 @@ function chooseForm(g) {
     h('label', { class: 'lbl', for: 'hintIn', text: 'Hint (optional, shows a third of the way in)' }),
     h('input', { id: 'hintIn', type: 'text', maxlength: '60', autocomplete: 'off', placeholder: 'e.g. street food, very spicy', value: F.hint, oninput: function (e) { F.hint = e.target.value; } }),
     h('button', { type: 'submit', class: 'btn primary big', id: 'sendWord' }, 'Send the word'),
-    h('p', { class: 'hint', text: 'Anyone on your team can send it. Chat below is set to “Team only” so you can decide together.' }));
+    h('p', { class: 'hint', text: forBot ? 'In the demo the robots only know a set of sketches, so pick one of these. Your teammate will chime in on the team chat.' : 'Anyone on your team can send it. Chat below is set to “Team only” so you can decide together.' }));
 }
 function boardOverlay() {
   const ov = Board.overlay(), g = game();
@@ -305,13 +313,14 @@ function playersCard(g) {
         const r = rosterEntry(p.id);
         const isDrawer = t && t.drawer === p.id && g.phase !== 'over';
         return h('li', { class: (p.left ? 'left ' : '') + (r && !r.on ? 'off ' : '') + (isDrawer ? 'drawer' : ''), 'data-pid': p.id },
-          h('span', { class: 'nm', text: p.name + (p.id === S.me ? ' (you)' : '') }), isDrawer ? h('span', { class: 'tag', text: '✏️ drawing' }) : null,
+          h('span', { class: 'nm', text: p.name + botTag(p.id) + (p.id === S.me ? ' (you)' : '') }), isDrawer ? h('span', { class: 'tag', text: '✏️ drawing' }) : null,
           r && !r.on && !p.left ? h('em', { class: 'tag warnt', text: 'offline' }) : null, p.left ? h('em', { class: 'tag', text: 'left' }) : null,
           h('span', { class: 'pts', text: String(p.score) }));
       })));
   };
   const hostBtns = [];
-  if (S.isHost && g.phase !== 'over') {
+  if (S.demo) hostBtns.push(confirmBtn('exitdemo', 'Exit demo', 'Confirm: exit', function () { hostClose(); }, 'small'));
+  else if (S.isHost && g.phase !== 'over') {
     if (g.phase === 'choose' || g.phase === 'draw') hostBtns.push(confirmBtn('skip', 'Skip this turn', 'Confirm: skip', hostSkip, 'small'));
     g.players.forEach(function (p) { const r = rosterEntry(p.id); if (p.id !== S.me && !p.left && r && !r.on) hostBtns.push(confirmBtn('rm' + p.id, 'Remove ' + p.name + ' (offline)', 'Confirm: remove', function () { hostRemove(p.id); }, 'small')); });
     hostBtns.push(confirmBtn('end', 'End game', 'Confirm: end game', hostEndGame, 'small'));
@@ -346,7 +355,10 @@ function overScreen(g) {
   const w = sum.winner;
   const me = meP();
   const buttons = [];
-  if (S.isHost) {
+  if (S.demo) {
+    buttons.push(btn('Play the demo again', hostRematch, { kind: 'primary big', id: 'rematchBtn' }));
+    buttons.push(btn('Play with friends', function () { hostClose(); }, { kind: 'ghost', id: 'lobbyBtn' }));
+  } else if (S.isHost) {
     buttons.push(btn('Play again', hostRematch, { kind: 'primary big', id: 'rematchBtn' }));
     buttons.push(btn('Back to lobby', hostToLobby, { kind: 'ghost', id: 'lobbyBtn' }));
   } else {
@@ -358,12 +370,13 @@ function overScreen(g) {
     h('p', { class: 'ov-k', text: 'Game over' }),
     h('h2', { class: 'ov-t', id: 'winner', text: w === 'tie' ? 'It’s a tie!' : teamName(w) + ' wins!' }),
     h('div', { class: 'finalscore' }, [0, 1].map(function (t) { return h('div', { class: 'fs t' + t }, h('span', { class: 'tname', text: teamShort(t) }), h('span', { class: 'tscore', text: String(g.teamScore[t]) })); })),
+    h('p', { class: 'hint winrule', id: 'winRule', text: 'Most points wins. Correct guesses score 50–100 for the drawing team (faster is more); a word nobody gets scores ' + PC.STUMP_POINTS + ' for the team that set it.' }),
     h('div', { class: 'ovbtns' }, buttons));
   const table = h('table', { class: 'sumtab', id: 'summaryTable' },
     h('thead', {}, h('tr', {}, h('th', { class: 'pn', text: 'Player' }), ['Points', 'Guessed', 'Drew', 'Stumps'].map(function (c) { return h('th', { text: c }); }))),
     h('tbody', {}, sum.rows.map(function (r) {
       return h('tr', { class: 't' + r.team + (r.id === S.me ? ' me' : ''), 'data-pid': r.id },
-        h('td', { class: 'pn' }, teamDot(r.team), h('span', { class: 'cn', text: r.name + (r.id === S.me ? ' (you)' : '') })),
+        h('td', { class: 'pn' }, teamDot(r.team), h('span', { class: 'cn', text: r.name + botTag(r.id) + (r.id === S.me ? ' (you)' : '') })),
         h('td', { class: 'b', text: String(r.score) }), h('td', { text: String(r.guessed) }), h('td', { text: r.drew ? r.drawnGuessed + '/' + r.drew : '0' }), h('td', { text: String(r.stumps) }));
     })));
   const nm = function (id) { const r = sum.rows.find(function (x) { return x.id === id; }); return r ? r.name : ''; };
@@ -417,7 +430,7 @@ function saveSheet(g, list) {
 function roomScreen() {
   const d = st();
   if (!d) return [roomCard(), card(h('p', { class: 'dim', id: 'loading', text: S.conn === 'failed' ? 'Could not join this room.' : 'Connecting to room ' + S.room + '…' }), btn('Back', function () { Net.leave(); }, { kind: 'ghost', id: 'backHome' }))];
-  if (!d.game) return lobbyScreen();
+  if (!d.game) return S.demo ? [card(h('p', { class: 'dim', text: 'Starting the demo…' }))] : lobbyScreen();
   return gameScreen();
 }
 
@@ -458,7 +471,7 @@ function renderHeader() {
   clear(hdrEl);
   const g = game();
   let chip = '';
-  if (S.screen === 'room') chip = S.room;
+  if (S.screen === 'room') chip = S.demo ? 'Demo' : S.room;
   const theme = currentTheme();
   add(hdrEl,
     h('span', { class: 'hbrand' }, h('span', { class: 'logo', text: 'Pictionary' })),
@@ -564,4 +577,4 @@ function boot() {
   render();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
-window.__pc = { S: S, H: H, C: C, PC: PC, Board: Board };
+window.__pc = { S: S, H: H, C: C, PC: PC, Board: Board, Sketch: Sketch };

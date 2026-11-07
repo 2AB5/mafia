@@ -138,11 +138,18 @@ Team draw-and-guess for 4 to 12 friends, each on their own phone. There are two 
   - Guessers see the category and one blank per letter. The setters' hint unlocks a third of the way in, and a few letters appear near the end (the host can turn letters off).
   - Spelling slips like "pani-puri" or "panipuri" still count. A near miss gets a private "really close!".
   - Guessers never receive the word until the reveal; the host's phone keeps it.
-- **Scoring:**
-  - A correct guess scores 50 to 100 points for the drawing team, more the faster it is.
-  - If nobody gets it, the team that set the word scores 40.
+- **Scoring and who wins:**
+  - A correct guess scores 50 to 100 points for the drawing team: 50 plus 50 × the share of time left, so a guess halfway through is worth 75.
+  - If nobody gets it, the team that set the word scores 40. A skipped turn scores nothing.
+  - Everyone draws once per round. With uneven teams the smaller team's players draw again, so both teams get the same number of turns (2 × rounds × the bigger team's size).
+  - **The team with the most points after the last turn wins**, and equal points is a tie. The game also ends early if a team drops below 2 players or the host ends it; the score at that point decides. The per-player points in the end table are just for fun.
   - The drawer can pass on one unfair word in the first 15 seconds, and the setters then pick another.
 - **Chat:** the setting team can tease and mislead in the chat, but any message that contains the word is blocked, and only the sender sees it. The drawer can't chat, only react.
+- **Demo game (no friends needed):** tap **Play a demo game** to play 4 turns on your own phone, with you and a robot teammate against two robots.
+  - The robots draw from 28 hand-made sketches (sun, kite, samosa, chai, diya, cricket and more), stroke by stroke with a slightly shaky hand, so you can guess while they draw.
+  - They set words for you and tease in the chat. Your robot teammate helps on the team chat, and picks a word for you if time is running out.
+  - When you draw, your teammate tries a few wrong guesses from the same category first. It only "gets it" after you've drawn something, and sometimes not at all.
+  - When it's your turn to set a word for a robot, you choose from the words the robots know how to draw.
 - **Drawing:** 12 colours, 4 brush sizes, eraser, fill bucket, undo and clear. Everyone renders the same list of strokes, so the picture matches on every screen. A phone that reloads or reconnects mid-turn gets the whole drawing back.
 - **End of game:** team scores, a per-player table (points, correct guesses, drawings guessed, stumps), awards like ⚡ Quickest guess, 🎨 Best artist and 🧩 Word master, and a gallery of every drawing with its word. Each drawing can be downloaded, or all of them saved as one image.
 - **Also:**
@@ -156,6 +163,8 @@ Team draw-and-guess for 4 to 12 friends, each on their own phone. There are two 
 | `pictionary/src/words.js` | Suggestion word packs |
 | `pictionary/src/net.js` | Rooms, the host's game clock, per-player views that hide the word, chat routing |
 | `pictionary/src/draw.js` | Drawing board, stroke sync and the chat panel |
+| `pictionary/src/sketch.js` | The robots' sketch library (strokes and fills) |
+| `pictionary/src/bots.js` | Robot players for the demo: setting words, drawing, guessing |
 | `pictionary/src/ui.js` | Screens |
 | `pictionary/index.html` | The built page (`node pictionary/build.js`) |
 

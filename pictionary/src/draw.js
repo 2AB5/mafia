@@ -249,19 +249,23 @@ const Chat = (function () {
     if (k === 'note') return h('div', { class: 'msg note' }, m.x);
     if (k === 'blocked') return h('div', { class: 'msg note blocked' }, h('b', { text: 'Only you can see this: ' }), '“' + m.x + '”. ', m.why || '');
     const mine = m.f && m.f === S.me;
+    const bot = m.f && typeof rosterEntry === 'function' && rosterEntry(m.f) && rosterEntry(m.f).bot;
     return h('div', { class: 'msg' + (mine ? ' mine' : '') + (k === 'guess' ? ' guess' : '') + (m.opp ? ' opp' : '') + (m.to !== undefined && m.to !== 'all' ? ' teamonly' : '') },
-      tdot(), h('b', { class: 'who', text: (m.n || 'Player') + (m.to !== undefined && m.to !== 'all' ? ' 🔒' : '') + ':' }), ' ', h('span', { class: 'tx', text: m.x }));
+      tdot(), h('b', { class: 'who', text: (m.n || 'Player') + (bot ? ' 🤖' : '') + (m.to !== undefined && m.to !== 'all' ? ' 🔒' : '') + ':' }), ' ', h('span', { class: 'tx', text: m.x }));
   }
   function near() { return log.scrollHeight - log.scrollTop - log.clientHeight < 60; }
   function add(m) {
+    const created = !el;
     ensure();
+    if (created) { sound(m); return; }        // a fresh panel already drew the whole history, this message included
     const stick = near();
     const empty = log.querySelector('.empty'); if (empty) empty.remove();
     log.appendChild(line(m));
     while (log.childNodes.length > 200) log.removeChild(log.firstChild);
     if (stick || m.f === S.me) log.scrollTop = log.scrollHeight;
-    if (m.k === 'correct') SFX.correct(); else if (m.k === 'close') SFX.close(); else if (m.k === 'hint') SFX.hint(); else if (m.k === 'stumped') SFX.stumped(); else if (m.f && m.f !== S.me) SFX.msg();
+    sound(m);
   }
+  function sound(m) { if (m.k === 'correct') SFX.correct(); else if (m.k === 'close') SFX.close(); else if (m.k === 'hint') SFX.hint(); else if (m.k === 'stumped') SFX.stumped(); else if (m.f && m.f !== S.me) SFX.msg(); }
   function redraw() {
     if (!log) return;
     clear(log);

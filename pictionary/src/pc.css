@@ -199,3 +199,7 @@
 
 .lobbychat { max-width: 720px; width: 100%; margin-inline: auto; }
 .lobbychat .chatlog { height: 150px; }
+
+.demo { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.demo p b { color: var(--ink); }
+.winrule { max-width: 46ch; text-align: center; }

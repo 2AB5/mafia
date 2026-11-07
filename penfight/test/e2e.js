@@ -259,8 +259,9 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     await host.screenshot({ path: path.join(SHOTS, '15-lobby-with-bot.png'), fullPage: true });
     await host.click('#cfgTarget [data-v="1"]'); await host.click('#cfgTimer [data-v="0"]');
     await host.click('#startBtn');
-    let guard = 0, botTurns = 0;
-    while (guard++ < 300) {
+    let botTurns = 0;
+    const tb = Date.now();
+    while (Date.now() - tb < 480000) {
       const m = await ev(host, 'window.__pf.H.match');
       if (m.phase === 'over') break;
       if (m.phase !== 'aim') { await sleep(80); continue; }
@@ -276,6 +277,7 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
       await waitFor(() => ev(host, "window.__pf.H.match.turnNo !== " + m.turnNo + " || window.__pf.H.match.phase !== 'aim'"), 'human flick', 6000).catch(() => {});
     }
     const fm = await ev(host, 'window.__pf.H.match');
+    if (fm.phase !== 'over') console.log('    bot room state: round ' + fm.round + ' phase ' + fm.phase + ' turnNo ' + fm.turnNo + ' log: ' + fm.log.slice(-4).join(' | '));
     check(fm.phase === 'over' && botTurns > 0, 'online match with a bot finished (' + botTurns + ' bot turns)');
     console.log('  online room with a computer player: ' + (fm.players.find(p => p.id === fm.winner) || {}).name + ' won after ' + botTurns + ' bot turns');
     await host.context().close(); await guest.context().close();
@@ -370,9 +372,64 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     console.log('  spectators: 3 watched (one with no name, one stepped back from a seat), saw ' + framesAtViewer + ' live shots, reacted, survived a reload, then joined the rematch');
     await host.context().close(); await dev.context().close(); await riya.context().close();
   }
+  async function clipsTest() {
+    const pg = await newPage('clips', 400, 900);
+    await pg.goto(URL);
+    await pg.fill('#nameIn', 'Ab');
+    await pg.click('#pracBots [data-v="2"]');
+    await pg.click('#pracLevel [data-v="easy"]');
+    await pg.click('#practiceStart');
+    await waitFor(() => pg.$('#desk'), 'practice desk');
+    check(await ev(pg, 'window.__pf.clips.supported()'), 'clips supported in Chromium (' + (await ev(pg, 'window.__pf.clips.mime()')) + ')');
+    const saveDl = async (file) => {
+      const [dl] = await Promise.all([pg.waitForEvent('download'), pg.click('#clipDownload')]);
+      const out = path.join(SHOTS, file + path.extname(dl.suggestedFilename()));
+      await dl.saveAs(out); return { out, name: dl.suggestedFilename() };
+    };
+    let clipped = null;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 480000) {
+      const m = await ev(pg, 'window.__pf.H.match');
+      if (m.phase === 'over') break;
+      if (!clipped && (await ev(pg, "!!(window.__pf.S.lastReplay && window.__pf.S.lastReplay.fell.length && document.getElementById('clipBtn'))"))) {
+        await pg.click('#clipBtn');
+        await waitFor(() => pg.$('#clipSheet'), 'clip sheet opens', 3000);
+        await sleep(1500); await pg.screenshot({ path: path.join(SHOTS, '19-clip-recording.png') });
+        await waitFor(() => pg.$('#clipDownload'), 'clip finished', 30000);
+        await sleep(600); await pg.screenshot({ path: path.join(SHOTS, '20-clip-ready.png') });
+        clipped = await saveDl('clip-single');
+        const last = await ev(pg, 'window.__pf.clips.last');
+        check(last.size > 20000, 'single clip has real video data (' + last.size + ' bytes, ' + last.secs + ' s)');
+        await pg.click('#clipClose');
+        continue;
+      }
+      if (m.phase !== 'aim') { await sleep(80); continue; }
+      const cur = m.players.find(p => p.id === m.turn);
+      if (cur.bot) { await waitFor(() => ev(pg, "window.__pf.H.match.turnNo !== " + m.turnNo + " || window.__pf.H.match.phase !== 'aim'"), 'bot flicks', 9000).catch(() => {}); continue; }
+      const ready = await waitFor(() => ev(pg, "document.getElementById('statusTxt') && document.getElementById('statusTxt').textContent.indexOf('Instant replay') !== 0 && window.__pf.H.match.phase === 'aim'"), 'my turn ready', 14000).catch(() => false);
+      if (!ready) continue;
+      const foes = m.pens.filter(p => !p.out && p.id !== m.turn); const tp = foes[0], mp = m.pens.find(p => p.id === m.turn);
+      await flick(pg, m.turn, tp.id, Math.min(1, Math.hypot(tp.x - mp.x, tp.y - mp.y) / 7 + 0.5), 0);
+      await waitFor(() => ev(pg, "window.__pf.H.match.turnNo !== " + m.turnNo + " || window.__pf.H.match.phase !== 'aim'"), 'my flick', 5000).catch(() => {});
+    }
+    check(!!clipped, 'saved a single replay clip');
+    await waitFor(() => pg.$('#reelBtn'), 'reel button at match end', 20000);
+    const nShots = await ev(pg, "window.__pf.clips.highlights(window.__pf.H.match).length");
+    await pg.click('#reelBtn');
+    await waitFor(() => pg.$('#clipSheet'), 'reel sheet opens', 3000);
+    await sleep(800); await pg.screenshot({ path: path.join(SHOTS, '21-reel-recording.png') });
+    await waitFor(() => pg.$('#clipDownload'), 'reel finished', 90000);
+    const reel = await saveDl('reel');
+    const rl = await ev(pg, 'window.__pf.clips.last');
+    check(rl.size > 40000 && rl.secs > 6, 'highlight reel recorded (' + rl.size + ' bytes, ' + rl.secs + ' s, ' + nShots + ' shots)');
+    console.log('  clips: single ' + clipped.name + ', reel ' + reel.name + ' (' + rl.secs + ' s, ' + Math.round(rl.size / 1024) + ' KB, ' + nShots + ' highlights)');
+    await pg.context().close();
+  }
   try {
     if (process.env.LOCAL_ONLY) { await localMatch(); throw 'done'; }
     if (process.env.PRACTICE_ONLY) { for (let k = 0; k < 3; k++) await practiceVsBots(); throw 'done'; }
+    if (process.env.BOT_ONLY) { for (let k = 0; k < 3; k++) await onlineWithBot(); throw 'done'; }
+    if (process.env.CLIPS_ONLY) { await clipsTest(); throw 'done'; }
     if (process.env.SPECT_ONLY) { await spectators(); throw 'done'; }
     if (process.env.TEAMS_ONLY) { for (let k = 0; k < 2; k++) await onlineMatch(4, { teams: true, target: 2 }); await practiceVsBots(); throw 'done'; }
     await onlineMatch(5, { shots: true, reload: true, target: 1 });
@@ -382,6 +439,7 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     await practiceVsBots();
     await onlineWithBot();
     await spectators();
+    await clipsTest();
   } catch (e) { if (e !== 'done') { fails++; console.log('  ERROR ' + e.stack); } }
   check(errors.length === 0, 'page errors:\n    ' + errors.slice(0, 10).join('\n    '));
   await browser.close(); web.close(); psrv.close();

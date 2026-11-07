@@ -529,13 +529,19 @@ function buildReplay(pm, m) {
   const first = { t: 0, p: pm.pens.map(function (p) { return [p.x, p.y, p.a, p.out ? 1 : 0]; }) };
   const fell = pm.pens.filter(function (p, i) { return !p.out && m.pens[i] && m.pens[i].out; }).map(function (p) { return p.id; });
   return { id: pm.id + ':' + pm.turnNo, matchId: pm.id, round: pm.round, by: pm.lastShot.by, power: pm.lastShot.power,
-    frames: [first].concat(S.rec.frames), fell: fell, roundOver: m.phase === 'roundover' || m.phase === 'over' };
+    frames: [first].concat(S.rec.frames), fell: fell, roundOver: m.phase === 'roundover' || m.phase === 'over', matchOver: m.phase === 'over',
+    table: pm.table, room: S.room, teams: !!pm.teamScore,
+    players: pm.players.map(function (p) { return { id: p.id, name: p.name, skin: p.skin, team: p.team, bot: p.bot }; }) };
 }
 function applyState(d) {
   const prev = S.st;
   if (prev && prev.match && d.match && prev.match.id === d.match.id && prev.match.phase === 'roll' && d.match.phase !== 'roll') {
     const r = buildReplay(prev.match, d.match);
-    if (r) { S.lastReplay = r; if (r.fell.length && SET.replays) startReplay(r); }
+    if (r) {
+      S.lastReplay = r;
+      if (r.fell.length) { if (!S.replays || S.replays.matchId !== r.matchId) S.replays = { matchId: r.matchId, list: [] }; S.replays.list.push(r); if (S.replays.list.length > 60) S.replays.list.shift(); }
+      if (r.fell.length && SET.replays) startReplay(r);
+    }
   }
   d.deadline = d.deadlineIn !== null && d.deadlineIn !== undefined ? Date.now() + d.deadlineIn : null;
   d.nextRound = d.nextRoundIn !== null && d.nextRoundIn !== undefined ? Date.now() + d.nextRoundIn : null;

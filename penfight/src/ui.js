@@ -167,9 +167,9 @@ function sizeStage() {
   s.scale = cw / V.w;
   s.wood = makeWood(s);
 }
-function makeWood(s) {
+function makeWood(s, table) {
   const k = s.scale * s.dpr;
-  const T = desk(); const W = Math.round(T.w * k), Ht = Math.round(T.h * k);
+  const T = table || desk(); const W = Math.round(T.w * k), Ht = Math.round(T.h * k);
   const c = document.createElement('canvas'); c.width = W; c.height = Ht;
   const x = c.getContext('2d');
   let seed = 7; const rnd = function () { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
@@ -220,25 +220,35 @@ const REPLAY_LOG = [];                         // ids of replays this screen has
 function replayEnd(r) { return r.frames[r.frames.length - 1].t; }
 function startReplay(r) {
   if (!r || !stage) return;
-  const m = match();
-  // focus the camera on the pens that moved
+  const c = replayCam(r);
+  REPLAY_LOG.push(r.id); if (REPLAY_LOG.length > 50) REPLAY_LOG.shift();
+  REPLAY = { r: r, start: performance.now(), dur: replayEnd(r) / REPLAY_SPEED * 1000 + 900, cx: c.cx, cy: c.cy, z: c.z, key: 'R' + r.id + ':' + Math.round(performance.now()) };
+  drag = null;
+  tone(900, 0.35, 'triangle', 0.04, 0, 300);
+  render();
+}
+/* where the replay camera looks: the box around every pen that moved */
+function replayCam(r, maxZ) {
   const f0 = r.frames[0].p;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   r.frames.forEach(function (f) { f.p.forEach(function (q, i) {
     if (!q || !f0[i] || f0[i][3]) return;
     if (Math.hypot(q[0] - f0[i][0], q[1] - f0[i][1]) > 0.08 || q[3]) { x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); x1 = Math.max(x1, q[0]); y1 = Math.max(y1, q[1]); }
   }); });
-  const V = view();
+  const T = r.table || desk(), V = { w: T.w + 0.8, h: T.h + 0.8 };
   let cx = 0, cy = 0, z = 1;
   if (isFinite(x0)) {
     cx = (x0 + x1) / 2; cy = (y0 + y1) / 2;
-    z = Math.max(1, Math.min(1.8, Math.min(V.w / (x1 - x0 + 3.2), V.h / (y1 - y0 + 3.2))));
+    z = Math.max(1, Math.min(maxZ || 1.8, Math.min(V.w / (x1 - x0 + 3.2), V.h / (y1 - y0 + 3.2))));
   }
-  REPLAY_LOG.push(r.id); if (REPLAY_LOG.length > 50) REPLAY_LOG.shift();
-  REPLAY = { r: r, start: performance.now(), dur: replayEnd(r) / REPLAY_SPEED * 1000 + 900, cx: cx, cy: cy, z: z, key: 'R' + r.id + ':' + Math.round(performance.now()) };
-  drag = null;
-  tone(900, 0.35, 'triangle', 0.04, 0, 300);
-  render();
+  return { cx: cx, cy: cy, z: z };
+}
+/* the caption shown under a replay */
+function replayCaption(r, nm) {
+  const others = r.fell.filter(function (id) { return id !== r.by; }).map(nm);
+  if (!r.fell.length) return nm(r.by) + '\u2019s flick';
+  if (!others.length) return nm(r.by) + ' flicks themselves off!';
+  return nm(r.by) + ' knocks off ' + others.join(' & ') + (r.fell.indexOf(r.by) !== -1 ? ' (and falls too)!' : '!');
 }
 function stopReplay() { if (!REPLAY) return; REPLAY = null; CAM.x = 0; CAM.y = 0; CAM.z = 1; render(); }
 function updateReplay(now) {
@@ -361,7 +371,7 @@ function drawDesk() {
     ctx.fillStyle = '#ff5a4a'; ctx.beginPath(); ctx.arc(26, 25, 5, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.font = '800 13px "Nunito", system-ui, sans-serif';
     ctx.fillText('INSTANT REPLAY \u00b7 slow-mo', 38, 25.5);
-    const msg = r.fell.length ? PF.nameOf(m, r.by) + (r.fell.indexOf(r.by) !== -1 && r.fell.length === 1 ? ' flicks themselves off!' : ' knocks off ' + r.fell.filter(function (id) { return id !== r.by; }).map(function (id) { return PF.nameOf(m, id); }).join(' & ') + '!') : PF.nameOf(m, r.by) + '\u2019s flick';
+    const msg = replayCaption(r, function (id) { return PF.nameOf(m, id); });
     ctx.font = '800 15px "Nunito", system-ui, sans-serif'; ctx.textAlign = 'center';
     const mw = Math.min(s.w - 24, ctx.measureText(msg).width + 24);
     ctx.fillStyle = 'rgba(10,12,20,.78)'; rr(ctx, s.w / 2 - mw / 2, s.h - 58, mw, 28, 14); ctx.fill();
@@ -853,11 +863,20 @@ function gameScreen() {
   const timer = m.phase === 'aim' && d.cfg.turnSecs && d.deadline
     ? h('div', { class: 'timer' }, h('span', { class: 'tbar' }, h('span', { class: 'tfill', id: 'timerFill' })), h('span', { class: 'ttxt', id: 'timerTxt' })) : null;
   nodes.push(h('div', { class: 'status' + (shooterIsMe() && m.phase === 'aim' ? ' mine' : ''), id: 'status' }, h('span', { id: 'statusTxt', text: statusText() }), timer));
-  if (m.phase === 'over') { const sb = summaryBlock(m); if (sb) nodes.push(h('section', { class: 'card sumcard' }, sb)); }
+  if (m.phase === 'over') {
+    const sb = summaryBlock(m);
+    const hl = Clips.supported() ? Clips.highlights(m) : [];
+    if (sb) nodes.push(h('section', { class: 'card sumcard' }, sb,
+      hl.length ? h('div', { class: 'reelrow' }, btn('\ud83c\udfac Make highlight reel (' + hl.length + (hl.length === 1 ? ' shot' : ' shots') + ')', function () { Clips.saveReel(m); }, { kind: 'primary', id: 'reelBtn' }),
+        h('p', { class: 'hint', text: 'A short video of the best knock-offs, ending with this summary. Share it or save it.' })) : null));
+  }
   const tools = [];
   if (!isLocal() && (S.me || S.conn === 'open')) tools.push(h('div', { class: 'reacts', role: 'group', 'aria-label': 'Reactions' }, REACTIONS.map(function (e) { return h('button', { type: 'button', class: 'react', 'aria-label': 'React ' + e, onclick: function () { Net.react(e); } }, e); })));
   const hostBtns = [];
-  if (S.lastReplay && S.lastReplay.matchId === m.id && m.phase !== 'roll' && !REPLAY) hostBtns.push(btn('\u21ba Replay last shot', function () { startReplay(S.lastReplay); }, { kind: 'ghost', id: 'replayBtn' }));
+  if (S.lastReplay && S.lastReplay.matchId === m.id && m.phase !== 'roll' && !REPLAY) {
+    hostBtns.push(btn('\u21ba Replay last shot', function () { startReplay(S.lastReplay); }, { kind: 'ghost', id: 'replayBtn' }));
+    if (Clips.supported()) hostBtns.push(btn('\ud83c\udfac Save clip', function () { Clips.saveReplay(S.lastReplay); }, { kind: 'ghost', id: 'clipBtn' }));
+  }
   if (S.isHost && m.phase === 'aim' && !shooterIsMe() && !isBot(m.turn)) hostBtns.push(confirmBtn('skip', 'Skip ' + nameOf(m.turn) + '’s turn', 'Confirm: skip', hostSkip));
   if (S.isHost && m.phase !== 'over') hostBtns.push(confirmBtn('end', isLocal() ? 'Quit match' : 'End match', 'Confirm: end match', hostToLobby));
   if (!S.isHost && m.phase !== 'over') hostBtns.push(confirmBtn('leave', 'Leave room', 'Confirm: leave', function () { Net.leave(); }));

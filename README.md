@@ -95,6 +95,10 @@ The last-bench classic, online for 2 to 5 friends. Everyone has a pen on the sam
   - There are three levels: Easy, Normal and Hard. The host taps a bot's badge in the lobby to change its level.
   - Bots aren't predictable. Each one tries dozens of shots in a quick simulation, picks among the good ones with some randomness, and then has a slightly shaky hand. Easy bots take more risks and miss more often.
 - **Instant replays:** whenever a pen goes off the desk, everyone sees the shot again in slow motion, with the camera zoomed on the action. Tap to skip, or use "Replay last shot" at any time. Replays can be turned off in the pencil case.
+- **Video clips:**
+  - Tap **🎬 Save clip** under the desk to turn the last shot into a short portrait video. It includes the slow-motion, the zoom and the caption, for example "Karan knocks off Riya!".
+  - When a match ends, **Make highlight reel** strings together the four best knock-offs and ends on the final scores and awards.
+  - The videos are made right in your browser (MP4 where the browser supports it, otherwise WebM) and can be shared to WhatsApp or downloaded.
 - **Match summary:** when a match ends, everyone gets a table under the desk with each player's shots, hits (shots that touched another pen), knock-offs and falls. It also gives a few awards, such as 🎯 Sharpshooter, 🛡️ Survivor, 💥 Double knock, 💪 Full power and 🙈 Oops.
 - **Spectators:**
   - Anyone with the code or link can tap **Watch** instead of Join to follow the match live without a seat. A seated player can also switch to "Just watch instead" in the lobby.
@@ -117,4 +121,5 @@ The last-bench classic, online for 2 to 5 friends. Everyone has a pen on the sam
 | `penfight/src/net.js` | Rooms, the host-run game loop, bot turns and replay recording |
 | `penfight/src/settings.js` | Desk, flick and replay settings (browser storage) |
 | `penfight/src/ui.js` | Desk renderer, flick controls and screens |
+| `penfight/src/clips.js` | Replay clips and highlight reels (video made in the browser) |
 | `penfight/index.html` | The built page (`node penfight/build.js`) |

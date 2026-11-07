@@ -1,6 +1,6 @@
 # Mafia · Night Table
 
-**Play: https://2ab5.github.io/mafia/** · Also here: **[Pen Fight](https://2ab5.github.io/mafia/penfight/)** for 2 to 5 players, and **[Pictionary](https://2ab5.github.io/mafia/pictionary/)** for 4 to 12.
+**Play: https://2ab5.github.io/mafia/** · Also here: **[Pen Fight](https://2ab5.github.io/mafia/penfight/)** for 2 to 5 players, **[Pictionary](https://2ab5.github.io/mafia/pictionary/)** for 4 to 12, and **[Badminton](https://2ab5.github.io/mafia/badminton/)** for 2 to 4.
 
 A party game of lies for 4 to 8 players. Everyone gets a secret role on their own phone. By night the Mafia strikes; by day the town argues, accuses and votes. No accounts and no installs.
 
@@ -167,4 +167,27 @@ Team draw-and-guess for 4 to 12 friends, each on their own phone. There are two 
 | `pictionary/src/bots.js` | Robot players for the demo: setting words, drawing, guessing |
 | `pictionary/src/ui.js` | Screens |
 | `pictionary/index.html` | The built page (`node pictionary/build.js`) |
+
+# Badminton
+
+**Play: https://2ab5.github.io/mafia/badminton/**
+
+Top-down online badminton for 2 to 4 players: 1 v 1, 1 v 2 or 2 v 2. Anyone else can watch and wait in the lobby for the next game. You can also practise against computer players (Easy, Normal or Hard), and the host can add bots to fill empty spots.
+
+- **Physics:** the shuttle has real drag (it falls at about 6.7 m/s, like a feather shuttle), so clears float high and die deep, while smashes are fast and steep. The host's phone runs the shuttle 120 times a second and streams it to everyone. Your own player moves instantly on your screen, and a slightly late swing still connects, which covers network delay.
+- **Shots:** Clear (a lift when the shuttle is low), Drop (a net shot near the net), and Smash (a drive at chest height, a push when low). The direction you're pushing as you hit aims the shot left or right, short or deep. Shots on your left are backhands, a little weaker. Clean contact close to your body gives a **Perfect!** shot that's faster and more accurate.
+- **Serves:** Clear = forehand high serve, Drop = backhand short serve, Smash = backhand flick serve. You serve from the right on an even score, into the diagonal box, and short serves must pass the short service line.
+- **Height meter:** a gauge beside the court shows how high the shuttle is. 🟢 is the smash zone (2 m and up, a jump smash above 2.5 m), 🟡 is for drives, drops and clears, and 🔴 is too low (lift it). The buttons relabel themselves, and the Smash button warns ⚠ when a smash would go into the net. Smashing from too low, or from deep without enough height, really can hit the tape.
+- **Energy:** running, jumping and smashing drain it, and standing still recovers it. Tired players run slower and smash softer. The solo player in 1 v 2 is a little quicker and recovers faster.
+- **Scoring:** rally points, first to 10 (5, 15 or 21 can be picked), win by 2, with 15 as the cap (target + 5).
+- **Screens:** on a portrait phone the court runs up the screen with your side at the bottom, joystick on the left and shot buttons on the right. On a landscape phone, an iPad or a computer the court turns sideways with your side on the left. On a computer, use WASD or the arrow keys, plus J, K and L.
+- **Also:** a landing guide (an ✕ where the shuttle will come down, switchable), a reach ring that lights up when you can hit, smash speeds in km/h, match stats and awards, reactions, a dark or light theme, and reconnects.
+
+| Path | What it holds |
+| --- | --- |
+| `badminton/src/game.js` | Shuttle physics, shots, serves, rules, scoring, energy and the computer players, tested in Node |
+| `badminton/src/net.js` | Rooms, the host's 120 Hz game loop, frame streaming and hit lag compensation |
+| `badminton/src/court.js` | Smoothing, local movement, controls and the court renderer with the height meter |
+| `badminton/src/ui.js` | Screens |
+| `badminton/index.html` | The built page (`node badminton/build.js`) |
 

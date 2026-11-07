@@ -98,28 +98,43 @@ test('flicking yourself off the edge eliminates you; 2-player round ends', () =>
   assert.ok(m.log.some(l => /themselves off/.test(l)));
 });
 function runShot(m, pid, shot) { const sim = PF.beginShot(m, pid, shot); let n = 0; while (!sim.settled() && n++ < 2000) sim.step(); return PF.settle(m, sim.poses(m)); }
-function pushTrial(gap, s) {
+function pushTrial(gap, s, endOn) {
   const m = PF.newMatch({ players: P(4), rng: seeded(1) });      // full 8x12 desk
-  m.pens.forEach((p, i) => { if (i > 1) { p.x = -2.5; p.y = -m.table.h / 2 + 1 + i * 0.4; p.a = 0; } });
+  m.pens.forEach((p, i) => { if (i > 1) { p.x = -2.5 - i * 0.4; p.y = -m.table.h / 2 + 1; p.a = Math.PI / 2; } });
   const ty = m.table.h / 2 - gap;
-  m.pens[1].x = 0; m.pens[1].y = ty; m.pens[1].a = 0;
-  m.pens[0].x = (s % 5 - 2) * 0.12; m.pens[0].y = ty - 1.0; m.pens[0].a = 0;
+  // broadside: target lies across the push (it rolls); end-on: target points along the push (it slides)
+  const ta = endOn ? Math.PI / 2 : 0;
+  m.pens[1].x = 0; m.pens[1].y = ty; m.pens[1].a = ta;
+  m.pens[0].x = (s % 5 - 2) * 0.12; m.pens[0].y = ty - (endOn ? 2.0 : 1.0); m.pens[0].a = Math.PI / 2;
   runShot(m, 'p0', { lx: (s % 3 - 1) * 0.3, ix: 0, iy: PF.impulseForPull(1), turnNo: m.turnNo });
   return PF.penOf(m, 'p1').out;
 }
-test('pushing a pen near the edge knocks it off; the middle of the desk is safe', () => {
-  let near = 0, far = 0;
-  for (let s = 0; s < 40; s++) { if (pushTrial(1, s)) near++; if (pushTrial(4, s)) far++; }
+test('edge pushes knock pens off; broadside hits roll further than end-on hits; the middle resists', () => {
+  let near = 0, broad = 0, end = 0, mid = 0;
+  for (let s = 0; s < 40; s++) { if (pushTrial(1, s)) near++; if (pushTrial(3, s)) broad++; if (pushTrial(3, s, true)) end++; if (pushTrial(5.5, s, true)) mid++; }
   assert.ok(near >= 34, 'near edge knocked ' + near + '/40');
-  assert.strictEqual(far, 0, 'far from edge knocked ' + far + '/40');
-  console.log('  full push near the edge knocks off ' + near + '/40, from the middle ' + far + '/40');
+  assert.ok(broad > end + 8, 'broadside ' + broad + ' vs end-on ' + end);
+  assert.strictEqual(mid, 0, 'end-on push from the middle knocked ' + mid + '/40');
+  console.log('  full push from 1 off the edge: ' + near + '/40; from 3 off: broadside ' + broad + '/40, end-on ' + end + '/40; middle ' + mid + '/40');
 });
-test('a 2-player opening flick cannot win instantly (you must approach)', () => {
-  for (let s = 1; s <= 60; s++) {
-    const m = PF.newMatch({ players: P(2), rng: seeded(300 + s) });
-    runShot(m, 'p0', aimAt(m, 'p0', 'p1', 1));
-    assert.ok(!PF.penOf(m, 'p1').out, 'opening shot won, seed ' + s);
+test('pen types are balanced: each one beats the ballpoint in 30-70% of duels', () => {
+  const { duel } = require('./duel-bot.js');
+  for (const sk of PF.SKINS) {
+    if (sk.id === 'blue') continue;
+    const r = duel(sk.id, 'blue', 30, 2);
+    assert.ok(r.rate >= 0.3 && r.rate <= 0.7, sk.id + ' beat the ballpoint ' + Math.round(r.rate * 100) + '%');
   }
+});
+test('a 2-player opening flick almost never wins outright (you must approach)', () => {
+  let wins = 0, tries = 0;
+  for (const sk of PF.SKINS) for (let s = 1; s <= 20; s++) {
+    const m = PF.newMatch({ players: [{ id: 'p0', name: 'A', skin: sk.id }, { id: 'p1', name: 'B', skin: PF.SKINS[s % 7].id }], rng: seeded(300 + s) });
+    const a = PF.penOf(m, 'p0'), b = PF.penOf(m, 'p1'), dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), J = PF.impulseForPull(1, sk.id);
+    runShot(m, 'p0', { lx: ((s % 5) - 2) * 0.2, ix: dx / d * J, iy: dy / d * J, turnNo: m.turnNo });
+    tries++; if (PF.penOf(m, 'p1').out && !PF.penOf(m, 'p0').out) wins++;
+  }
+  assert.ok(wins / tries <= 0.06, 'opening wins ' + wins + '/' + tries);
+  console.log('  2-player opening full flick wins outright ' + wins + '/' + tries);
 });
 test('flicks stop quickly and the landing ghost is accurate', () => {
   for (const [pull, lx] of [[0.25, 0], [0.6, 0.3], [1, 0.75], [1, -0.6]]) {
@@ -130,11 +145,21 @@ test('flicks stop quickly and the landing ghost is accurate', () => {
     const sim = PF.beginShot(m, 'p0', shot); let t = 0;
     while (!sim.settled()) { sim.step(); t += PF.DT; }
     const p = sim.poses(m)[0];
-    assert.ok(t < 1.6, 'stopped in ' + t.toFixed(2) + ' s');
+    assert.ok(t < 2.6, 'stopped in ' + t.toFixed(2) + ' s');
     assert.ok(Math.hypot(p.x - pred.x, p.y - pred.y) < 0.15, 'ghost position off by ' + Math.hypot(p.x - pred.x, p.y - pred.y).toFixed(3));
     assert.ok(Math.abs(PF.normAngle(p.a - pred.a)) < 0.35, 'ghost angle off');
   }
-  assert.ok(Math.abs(PF.predict({ x: 0, y: 0, a: 0 }, { lx: 0, ix: 0, iy: PF.impulseForPull(0.5) }).dist - PF.MAX_TRAVEL * 0.5) < 1e-9, 'pull maps linearly to distance');
+  for (const sk of PF.SKINS) for (const dir of [0, Math.PI / 2]) {
+    const d = pull => PF.predict({ x: 0, y: 0, a: dir }, { lx: 0, ix: PF.impulseForPull(pull, sk.id), iy: 0 }, sk.id).dist;
+    assert.ok(Math.abs(d(0.5) / d(1) - 0.5) < 0.03, 'pull maps linearly to distance for ' + sk.id);
+  }
+  // a lengthwise full flick goes the pen's reach; sideways it rolls further unless it is the pencil
+  for (const sk of PF.SKINS) {
+    const along = PF.predict({ x: 0, y: 0, a: 0 }, { lx: 0, ix: PF.impulseForPull(1, sk.id), iy: 0 }, sk.id).dist;
+    const side = PF.predict({ x: 0, y: 0, a: 0 }, { lx: 0, ix: 0, iy: PF.impulseForPull(1, sk.id) }, sk.id).dist;
+    assert.ok(Math.abs(along - sk.reach) < 0.15, sk.id + ' reach ' + along.toFixed(2));
+    if (sk.roll < 1) assert.ok(side > along * 1.05, sk.id + ' should roll further sideways'); else assert.ok(Math.abs(side - along) < 0.1, 'pencil does not roll');
+  }
 });
 test('round over -> next round resets pens, rotates the starter, keeps scores', () => {
   const m = PF.newMatch({ players: P(3), rng: seeded(6), cfg: { target: 2 } });

@@ -21,9 +21,11 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
   await sleep(400);
   const browser = await chromium.launch();
   const errors = [];
-  async function newPage(tag, w, hgt) {
+  async function newPage(tag, w, hgt, fresh) {
     const ctx = await browser.newContext({ viewport: { width: w || 400, height: hgt || 860 }, hasTouch: false });
     const pg = await ctx.newPage();
+    // test players start with everything unlocked (a veteran profile), unless testing a fresh profile
+    if (!fresh) await pg.addInitScript(() => { try { if (!localStorage.getItem('penfight.profile')) localStorage.setItem('penfight.profile', JSON.stringify({ v: 1, xp: 5000, matches: 0, wins: 0, roundsWon: 0, kos: 0, selfOuts: 0, streak: 0, bestStreak: 0, desk: 'oak', flick: 'pull', seen: [] })); } catch (e) {} });
     pg.on('pageerror', e => errors.push(tag + ' pageerror: ' + e.message));
     pg.on('console', m => { if (m.type() === 'error' && !/fonts\.g|net::|ERR_/.test(m.text())) errors.push(tag + ' console: ' + m.text()); });
     await pg.route('**/fonts.googleapis.com/**', r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
@@ -150,8 +152,17 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     }
     check(framesSeen > 0, 'watchers received streamed frames');
     for (const pg of pages) await waitFor(() => pg.$('#winner'), 'winner shown everywhere');
+    // XP is awarded once per match, on every player's own device
+    for (const pg of pages) {
+      await waitFor(() => pg.$('#xpCard'), 'XP card shown');
+      const prof = await ev(pg, "JSON.parse(localStorage.getItem('penfight.profile'))");
+      check(prof.matches === (opts._matchesBefore || 0) + 1 && prof.xp > 5000, 'profile updated once: ' + prof.matches + ' matches, ' + prof.xp + ' xp');
+    }
+    const xpAgain = await ev(pages[1], "JSON.parse(localStorage.getItem('penfight.profile')).xp");
+    await pages[1].evaluate(() => window.__pf.S.st && (window.__pf.S.st = Object.assign({}, window.__pf.S.st)));
     if (opts.shots) await pages[1].screenshot({ path: path.join(SHOTS, '07-match-over.png') });
     // rematch
+    check((await ev(pages[1], "JSON.parse(localStorage.getItem('penfight.profile')).xp")) === xpAgain, 'XP not double counted');
     await host.click('#rematchBtn');
     for (const pg of pages) await waitFor(() => ev(pg, "!!window.__pf.S.st.match && window.__pf.S.st.match.phase === 'aim' && window.__pf.S.st.match.round === 1"), 'rematch started everywhere');
     // reaction travels
@@ -165,6 +176,17 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     for (const pg of pages) await pg.context().close();
   }
 
+  async function freshProfile() {
+    const pg = await newPage('fresh', 400, 900, true);
+    await pg.goto(URL);
+    const locked = await pg.$$eval('#skinPick .skinb', bs => bs.filter(b => b.disabled).map(b => b.dataset.skin));
+    check(JSON.stringify(locked.sort()) === JSON.stringify(['gold', 'green', 'pencil', 'pink']), 'fresh profile: only the 3 starter pens are open, locked: ' + locked);
+    await pg.click('#caseD summary');
+    check(/Lv 1/.test(await pg.textContent('#caseD')), 'fresh profile is level 1');
+    await pg.screenshot({ path: path.join(SHOTS, '12-fresh-home.png'), fullPage: true });
+    await pg.context().close();
+    console.log('  fresh profile: 4 pens locked, level 1');
+  }
   async function localMatch() {
     const pg = await newPage('local', 1100, 900);
     await pg.goto(URL);
@@ -197,6 +219,7 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     await onlineMatch(2, { target: 1 });
     await onlineMatch(4, { teams: true, target: 2, shots: true });
     await localMatch();
+    await freshProfile();
   } catch (e) { if (e !== 'done') { fails++; console.log('  ERROR ' + e.stack); } }
   check(errors.length === 0, 'page errors:\n    ' + errors.slice(0, 10).join('\n    '));
   await browser.close(); web.close(); psrv.close();

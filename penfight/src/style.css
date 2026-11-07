@@ -163,6 +163,35 @@ input[type=text], select { min-height: 46px; padding: 9px 13px; border-radius: 1
 .ticker { margin: 0; text-align: center; color: var(--muted); font-size: 14px; }
 .watching { margin: 0; text-align: center; font-weight: 700; color: var(--muted); }
 
+/* pens, progress */
+.skinb { position: relative; }
+.skinb.locked { opacity: .55; }
+.skinb .lock { position: absolute; top: 4px; right: 6px; font-style: normal; font-size: 10px; font-weight: 800; color: var(--muted); }
+.penstats { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding: 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); }
+.pshead { display: flex; align-items: center; gap: 12px; }
+.pshead .penprev { flex: none; }
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; }
+.stat { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 800; color: var(--muted); }
+.sl { width: 46px; flex: none; }
+.sbar { flex: 1; height: 7px; border-radius: 99px; background: var(--surface2); overflow: hidden; }
+.sfill { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+.lvl { display: flex; align-items: center; gap: 10px; width: 100%; }
+.lvbadge { font-family: var(--f-hand); font-weight: 700; font-size: 20px; line-height: 1; padding: 3px 9px 1px; border-radius: 9px; background: var(--hot); color: #fff; white-space: nowrap; }
+.lvbar { flex: 1; height: 9px; border-radius: 99px; background: var(--surface2); overflow: hidden; min-width: 40px; }
+.lvfill { display: block; height: 100%; background: linear-gradient(90deg, var(--gold), var(--hot)); border-radius: 99px; }
+.lvtxt { font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.statgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.sg { display: flex; flex-direction: column; align-items: center; padding: 8px 4px; border-radius: 10px; background: var(--bg); }
+.sg strong { font-family: var(--f-hand); font-size: 28px; line-height: 1; }
+.sg span { font-size: 11px; font-weight: 700; color: var(--muted); text-align: center; }
+.case summary { display: flex; align-items: center; gap: 10px; }
+.xpcard { width: 100%; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--bg); }
+.xptotal { margin: 0; font-family: var(--f-hand); font-weight: 700; font-size: 34px; line-height: 1; color: var(--hot); }
+.xplines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.xplines li { display: flex; justify-content: space-between; gap: 8px; }
+.xplines li span:last-child { font-weight: 800; }
+.unlocked { margin: 0; font-weight: 800; color: var(--accent); }
+
 /* teams */
 .teamb { font-style: normal; font-size: 11px; font-weight: 800; padding: 2px 9px; border-radius: 99px; color: #fff; border: 0; text-transform: uppercase; letter-spacing: .05em; }
 button.teamb { cursor: pointer; min-height: 28px; }

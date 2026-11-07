@@ -179,6 +179,35 @@ input[type=text], select { min-height: 46px; padding: 9px 13px; border-radius: 1
 .ticker { margin: 0; text-align: center; color: var(--muted); font-size: 14px; }
 .watching { margin: 0; text-align: center; font-weight: 700; color: var(--muted); }
 
+/* pens, progress */
+.skinb { position: relative; }
+.skinb.locked { opacity: .55; }
+.skinb .lock { position: absolute; top: 4px; right: 6px; font-style: normal; font-size: 10px; font-weight: 800; color: var(--muted); }
+.penstats { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding: 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); }
+.pshead { display: flex; align-items: center; gap: 12px; }
+.pshead .penprev { flex: none; }
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; }
+.stat { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 800; color: var(--muted); }
+.sl { width: 46px; flex: none; }
+.sbar { flex: 1; height: 7px; border-radius: 99px; background: var(--surface2); overflow: hidden; }
+.sfill { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+.lvl { display: flex; align-items: center; gap: 10px; width: 100%; }
+.lvbadge { font-family: var(--f-hand); font-weight: 700; font-size: 20px; line-height: 1; padding: 3px 9px 1px; border-radius: 9px; background: var(--hot); color: #fff; white-space: nowrap; }
+.lvbar { flex: 1; height: 9px; border-radius: 99px; background: var(--surface2); overflow: hidden; min-width: 40px; }
+.lvfill { display: block; height: 100%; background: linear-gradient(90deg, var(--gold), var(--hot)); border-radius: 99px; }
+.lvtxt { font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.statgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.sg { display: flex; flex-direction: column; align-items: center; padding: 8px 4px; border-radius: 10px; background: var(--bg); }
+.sg strong { font-family: var(--f-hand); font-size: 28px; line-height: 1; }
+.sg span { font-size: 11px; font-weight: 700; color: var(--muted); text-align: center; }
+.case summary { display: flex; align-items: center; gap: 10px; }
+.xpcard { width: 100%; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--bg); }
+.xptotal { margin: 0; font-family: var(--f-hand); font-weight: 700; font-size: 34px; line-height: 1; color: var(--hot); }
+.xplines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.xplines li { display: flex; justify-content: space-between; gap: 8px; }
+.xplines li span:last-child { font-weight: 800; }
+.unlocked { margin: 0; font-weight: 800; color: var(--accent); }
+
 /* teams */
 .teamb { font-style: normal; font-size: 11px; font-weight: 800; padding: 2px 9px; border-radius: 99px; color: #fff; border: 0; text-transform: uppercase; letter-spacing: .05em; }
 button.teamb { cursor: pointer; min-height: 28px; }
@@ -2570,30 +2599,74 @@ const PF = (function () {
 
   const TABLE = { w: 8, h: 12 };                // biggest desk, centred on 0,0 (a pen is 1.6 units long)
   /* the desk grows with the number of players: a tight duel for 2, the full desk for 4-5 */
-  function tableFor(n) { return n <= 2 ? { w: 6, h: 9 } : n === 3 ? { w: 7, h: 10.5 } : { w: 8, h: 12 }; }
-  const PEN = { len: 1.6, wid: 0.17 };
-  const PEN_MASS = PEN.len * PEN.wid;            // density 1
-  const PEN_INERTIA = PEN_MASS * (PEN.len * PEN.len + PEN.wid * PEN.wid) / 12;
-  // Desk friction: sliding (Coulomb) friction takes a fixed amount of speed off every second, so a pen
-  // slows steadily and stops dead, like on a real desk. Spin dies faster: a spinning pen grips along its length.
+  function tableFor(n) { return n <= 2 ? { w: 7, h: 10.5 } : n === 3 ? { w: 7.5, h: 11.25 } : { w: 8, h: 12 }; }
+  const PEN = { len: 1.6, wid: 0.17 };           // the standard ballpoint; other pens differ (see SKINS)
+  const BASE_MASS = PEN.len * PEN.wid;
+  // Desk friction is Coulomb (a fixed amount of speed off every second), so pens slow steadily and stop dead.
+  // It is direction-aware: pushed lengthwise a pen slides against full friction (SLIDE_DECEL); pushed
+  // sideways a round pen ROLLS, so it only feels SLIDE_DECEL * roll. A hexagonal pencil (roll 1) does not roll.
   const SLIDE_DECEL = 10.0;                      // units/s^2
   const SPIN_DECEL = 55;                         // rad/s^2
-  const MAX_TRAVEL = 7;                          // a full flick slides about 4.4 pen lengths if it hits nothing
-  const MAX_IMPULSE = PEN_MASS * Math.sqrt(2 * SLIDE_DECEL * MAX_TRAVEL);
+  const MAX_TRAVEL = 7;                          // a full lengthwise flick of the standard pen slides ~4.4 pen lengths
   const MIN_PLAYERS = 2, MAX_PLAYERS = 5;
   const DT = 1 / 60;
   const MAX_ROLL_SECS = 12;
 
+  /* Pens are sidegrades, balanced by bot duels (every pen wins roughly half its matches). They weigh about the
+     same; what differs is reach (full-flick distance), roll (how much grip it keeps when pushed sideways: round
+     pens roll, a hexagonal pencil does not), bounce and size. level is when the pen unlocks. */
   const SKINS = [
-    { id: 'blue',   name: 'Blue ballpoint', body: '#2f66d0', cap: '#18388a', band: '#c9d6f5', tip: '#d8d8d8', clear: true },
-    { id: 'black',  name: 'Black gel',      body: '#2a2a30', cap: '#0f0f12', band: '#8f8f9a', tip: '#cfcfcf' },
-    { id: 'red',    name: 'Red ballpoint',  body: '#cf2c2c', cap: '#7f1414', band: '#f3c1c1', tip: '#d8d8d8', clear: true },
-    { id: 'green',  name: 'Green gel',      body: '#2c9a55', cap: '#145e31', band: '#bfe9cf', tip: '#cfcfcf' },
-    { id: 'gold',   name: 'Fountain pen',   body: '#1f2130', cap: '#1f2130', band: '#d9b049', tip: '#d9b049' },
-    { id: 'pencil', name: 'Pencil',         body: '#f0bd22', cap: '#e889a2', band: '#c0c4c8', tip: '#3b3127', pencil: true },
-    { id: 'pink',   name: 'Highlighter',    body: '#ff5fa8', cap: '#d01f72', band: '#ffd1e6', tip: '#ffffff' }
+    { id: 'blue',   name: 'Blue ballpoint', body: '#2f66d0', cap: '#18388a', band: '#c9d6f5', tip: '#d8d8d8', clear: true,
+      len: 1.6, wid: 0.17, mass: 1.05, reach: 7.1, roll: 0.75, bounce: 0.6, level: 1, blurb: 'The all-rounder. Good at everything.' },
+    { id: 'red',    name: 'Red ballpoint',  body: '#cf2c2c', cap: '#7f1414', band: '#f3c1c1', tip: '#d8d8d8', clear: true,
+      len: 1.6, wid: 0.17, mass: 1.055, reach: 7.7, roll: 0.7, bounce: 0.62, level: 1, blurb: 'Longest flick, but rolls easily when hit.' },
+    { id: 'black',  name: 'Black gel',      body: '#2a2a30', cap: '#0f0f12', band: '#8f8f9a', tip: '#cfcfcf',
+      len: 1.6, wid: 0.18, mass: 1.03, reach: 6.45, roll: 0.85, bounce: 0.55, level: 1, blurb: 'Rubber grip: rolls less, shorter flick.' },
+    { id: 'green',  name: 'Fat marker',     body: '#2c9a55', cap: '#145e31', band: '#bfe9cf', tip: '#e9f7ee', fat: true,
+      len: 1.45, wid: 0.23, mass: 1.03, reach: 5.75, roll: 0.8, bounce: 0.5, level: 2, blurb: 'Fat and stubby: short, controlled flicks.' },
+    { id: 'pencil', name: 'Pencil',         body: '#f0bd22', cap: '#e889a2', band: '#c0c4c8', tip: '#3b3127', pencil: true,
+      len: 1.72, wid: 0.17, mass: 1.03, reach: 7.25, roll: 1.0, bounce: 0.45, level: 3, blurb: 'Hexagonal: never rolls. Dead bounce.' },
+    { id: 'pink',   name: 'Highlighter',    body: '#ff5fa8', cap: '#d01f72', band: '#ffd1e6', tip: '#ffffff', fat: true,
+      len: 1.4, wid: 0.24, mass: 1.075, reach: 7.85, roll: 0.65, bounce: 0.78, level: 4, blurb: 'Ricochet king: super bouncy and slippery.' },
+    { id: 'gold',   name: 'Fountain pen',   body: '#1f2130', cap: '#1f2130', band: '#d9b049', tip: '#d9b049',
+      len: 1.76, wid: 0.19, mass: 1.03, reach: 6.3, roll: 0.9, bounce: 0.45, level: 6, blurb: 'Long and steady: grips the desk, barely bounces.' }
   ];
   function skinById(id) { return SKINS.find(function (s) { return s.id === id; }) || SKINS[0]; }
+  /* physical numbers for a pen type: capsule (box + two round ends), mass, inertia, strongest flick */
+  const SPEC = {};
+  function penSpec(id) {
+    const sk = skinById(id);
+    if (SPEC[sk.id]) return SPEC[sk.id];
+    const r = sk.wid / 2, core = sk.len - sk.wid;
+    const mass = BASE_MASS * sk.mass;
+    const areaBox = core * sk.wid, areaCirc = Math.PI * r * r, area = areaBox + 2 * areaCirc;
+    const density = mass / area;
+    const mb = density * areaBox, mc = density * areaCirc;
+    const inertia = mb * (core * core + sk.wid * sk.wid) / 12 + 2 * (mc * r * r / 2 + mc * (core / 2) * (core / 2));
+    const spec = { id: sk.id, len: sk.len, wid: sk.wid, r: r, core: core, mass: mass, density: density, inertia: inertia,
+      aAlong: SLIDE_DECEL, aPerp: SLIDE_DECEL * sk.roll, bounce: sk.bounce, reach: sk.reach,
+      maxImpulse: mass * Math.sqrt(2 * SLIDE_DECEL * sk.reach) };
+    SPEC[sk.id] = spec;
+    return spec;
+  }
+  const MAX_IMPULSE = penSpec('blue').maxImpulse;     // the standard pen's full flick (kept for callers)
+  function resetSpecs() { Object.keys(SPEC).forEach(function (k) { delete SPEC[k]; }); }
+  /* one step of desk friction for a pen moving at (vx, vy) spinning at w with heading a */
+  function deskFriction(spec, vx, vy, w, a, dt) {
+    const sp = Math.hypot(vx, vy);
+    if (sp > 0) {
+      const c = Math.cos(a), s = Math.sin(a);
+      let vl = vx * c + vy * s, vp = -vx * s + vy * c;
+      const dl = spec.aAlong * dt * Math.abs(vl) / sp, dp = spec.aPerp * dt * Math.abs(vp) / sp;
+      vl = Math.abs(vl) <= dl ? 0 : vl - Math.sign(vl) * dl;
+      vp = Math.abs(vp) <= dp ? 0 : vp - Math.sign(vp) * dp;
+      vx = vl * c - vp * s; vy = vl * s + vp * c;
+      if (Math.hypot(vx, vy) < 0.004) { vx = 0; vy = 0; }
+    }
+    const dw = SPIN_DECEL * dt;
+    w = Math.abs(w) <= dw ? 0 : w - Math.sign(w) * dw;
+    return [vx, vy, w];
+  }
 
   const TEAMS = [{ name: 'Blue team', color: '#2f66d0' }, { name: 'Red team', color: '#d6455d' }];
   function defaultConfig() { return { target: 3, turnSecs: 30, teams: false }; }
@@ -2631,10 +2704,11 @@ const PF = (function () {
     for (let i = 0; i < n; i++) {
       const th = rot + (i / n) * Math.PI * 2;
       let x = rx * Math.cos(th), y = ry * Math.sin(th);
-      if (n === 2) { x = (rng() - 0.5) * t.w * 0.2; y = (i === 0 ? -1 : 1) * t.h * 0.275; }
-      // pens lie roughly sideways to the centre, with a little randomness
+      if (n === 2) { x = (rng() - 0.5) * t.w * 0.2; y = (i === 0 ? -1 : 1) * t.h * 0.22; }
+      // pens start pointing roughly at the centre (in a duel, at a 45 degree slant) so no opening flick can
+      // land a clean tip-to-tip or broadside hit; tested: an opening full flick wins a duel outright ~3% of the time
       const facing = Math.atan2(-y, -x);
-      const a = facing + Math.PI / 2 + (rng() - 0.5) * 0.9;
+      const a = facing + (n === 2 ? (i === 0 ? 1 : -1) * Math.PI / 4 : 0) + (rng() - 0.5) * 0.7;
       out.push({ x: round3(x), y: round3(y), a: round3(normAngle(a)) });
     }
     return out;
@@ -2663,6 +2737,7 @@ const PF = (function () {
       id: opts.id || ('m' + Math.floor(rng() * 1e9).toString(36)),
       cfg: cfg,
       players: opts.players.map(function (p) { const q = { id: p.id, name: cleanName(p.name), skin: skinById(p.skin).id, score: 0 }; if (cfg.teams) q.team = p.team; return q; }),
+      stats: (function () { const o = {}; opts.players.forEach(function (p) { o[p.id] = { ko: 0, self: 0, mate: 0 }; }); return o; })(),
       table: tableFor(n),
       teamScore: cfg.teams ? [0, 0] : null,
       teamNext: cfg.teams ? [0, 0] : null,
@@ -2711,6 +2786,7 @@ const PF = (function () {
     }
     return m;
   }
+  function specOf(m, id) { const p = m.players.find(function (q) { return q.id === id; }); return penSpec(p ? p.skin : 'blue'); }
   function nameOf(m, id) { const p = m.players.find(function (q) { return q.id === id; }); return p ? p.name : 'Player'; }
   function penOf(m, id) { return m.pens.find(function (q) { return q.id === id; }) || null; }
   function alivePens(m) { return m.pens.filter(function (p) { return !p.out; }); }
@@ -2757,13 +2833,14 @@ const PF = (function () {
     if (shot.turnNo !== undefined && shot.turnNo !== m.turnNo) return null;
     const pen = penOf(m, pid);
     if (!pen || pen.out) return null;
+    const sp = specOf(m, pid);
     let lx = Number(shot.lx), ix = Number(shot.ix), iy = Number(shot.iy);
     if (!isFinite(lx) || !isFinite(ix) || !isFinite(iy)) return null;
-    lx = Math.max(-PEN.len / 2, Math.min(PEN.len / 2, lx));
+    lx = Math.max(-sp.len / 2, Math.min(sp.len / 2, lx));
     let mag = Math.hypot(ix, iy);
     if (mag < 0.02) return null;
-    if (mag > MAX_IMPULSE) { ix = ix / mag * MAX_IMPULSE; iy = iy / mag * MAX_IMPULSE; mag = MAX_IMPULSE; }
-    return { lx: lx, ix: ix, iy: iy, power: mag / MAX_IMPULSE };
+    if (mag > sp.maxImpulse) { ix = ix / mag * sp.maxImpulse; iy = iy / mag * sp.maxImpulse; mag = sp.maxImpulse; }
+    return { lx: lx, ix: ix, iy: iy, power: mag / sp.maxImpulse };
   }
 
   /* skip the current player (time ran out / left) */
@@ -2787,6 +2864,7 @@ const PF = (function () {
     if (fell.length) {
       fell.forEach(function (id) {
         const mate = m.teamScore && teamOf(m, id) === teamOf(m, shooter);
+        if (m.stats && m.stats[shooter]) { if (id === shooter) m.stats[shooter].self++; else if (mate) m.stats[shooter].mate++; else m.stats[shooter].ko++; }
         addLog(m, id === shooter ? nameOf(m, id) + ' flicked themselves off the desk!'
           : mate ? nameOf(m, shooter) + ' knocked their own teammate ' + nameOf(m, id) + ' off!'
           : nameOf(m, id) + ' was knocked off by ' + nameOf(m, shooter) + '.');
@@ -2846,10 +2924,15 @@ const PF = (function () {
     this.hits = 0;
     this.t = 0;
     const self = this;
+    this.specs = m.pens.map(function (pen) { return specOf(m, pen.id); });
     m.pens.forEach(function (pen, i) {
       if (pen.out) { self.bodies.push(null); return; }
+      const sp = self.specs[i];
       const b = self.world.createBody({ type: 'dynamic', position: pl.Vec2(pen.x, pen.y), angle: pen.a, linearDamping: 0, angularDamping: 0, bullet: true });
-      b.createFixture(pl.Box(PEN.len / 2, PEN.wid / 2), { density: 1, friction: 0.45, restitution: 0.6 });
+      const fx = { density: sp.density, friction: 0.45, restitution: sp.bounce };
+      b.createFixture(pl.Box(sp.core / 2, sp.r), fx);                                     // barrel
+      b.createFixture(pl.Circle(pl.Vec2(sp.core / 2, 0), sp.r), fx);                      // rounded ends
+      b.createFixture(pl.Circle(pl.Vec2(-sp.core / 2, 0), sp.r), fx);
       b.setUserData(i);
       self.bodies.push(b);
     });
@@ -2869,12 +2952,11 @@ const PF = (function () {
     for (let i = 0; i < this.bodies.length; i++) {
       const b = this.bodies[i];
       if (!b) continue;
-      const v = b.getLinearVelocity(), sp = Math.hypot(v.x, v.y), dv = SLIDE_DECEL * DT;
-      if (sp <= dv) { if (sp > 0) b.setLinearVelocity(pl.Vec2(0, 0)); }
-      else b.setLinearVelocity(pl.Vec2(v.x * (1 - dv / sp), v.y * (1 - dv / sp)));
-      const w = b.getAngularVelocity(), dw = SPIN_DECEL * DT;
-      if (Math.abs(w) <= dw) { if (w !== 0) b.setAngularVelocity(0); }
-      else b.setAngularVelocity(w - Math.sign(w) * dw);
+      const v = b.getLinearVelocity(), w = b.getAngularVelocity();
+      if (v.x === 0 && v.y === 0 && w === 0) continue;
+      const f = deskFriction(this.specs[i], v.x, v.y, w, b.getAngle(), DT);
+      b.setLinearVelocity(pl.Vec2(f[0], f[1]));
+      b.setAngularVelocity(f[2]);
     }
     this.world.step(DT, 8, 3);
     this.t += DT;
@@ -2938,19 +3020,28 @@ const PF = (function () {
     return settle(m, sim.poses(m));
   }
 
-  /* where a flick would leave the pen if it hit nothing: { x, y, a, dist } */
-  function predict(pose, shot) {
+  /* where a flick would leave the pen if it hit nothing: { x, y, a, dist }. Runs the same friction as the
+     simulation step by step (friction depends on which way the pen points, so there is no simple formula). */
+  function predict(pose, shot, skinId) {
+    const sp = penSpec(skinId || 'blue');
     let ix = shot.ix, iy = shot.iy;
     const mag = Math.hypot(ix, iy);
-    if (mag > MAX_IMPULSE) { ix = ix / mag * MAX_IMPULSE; iy = iy / mag * MAX_IMPULSE; }
-    const lx = Math.max(-PEN.len / 2, Math.min(PEN.len / 2, shot.lx || 0));
-    const vx = ix / PEN_MASS, vy = iy / PEN_MASS, v = Math.hypot(vx, vy);
+    if (mag > sp.maxImpulse) { ix = ix / mag * sp.maxImpulse; iy = iy / mag * sp.maxImpulse; }
+    const lx = Math.max(-sp.len / 2, Math.min(sp.len / 2, shot.lx || 0));
+    let vx = ix / sp.mass, vy = iy / sp.mass;
     const ux = Math.cos(pose.a), uy = Math.sin(pose.a);
-    const w0 = lx * (ux * iy - uy * ix) / PEN_INERTIA;
-    const d = v * v / (2 * SLIDE_DECEL);
-    return { x: pose.x + (v ? vx / v : 0) * d, y: pose.y + (v ? vy / v : 0) * d, a: pose.a + Math.sign(w0) * w0 * w0 / (2 * SPIN_DECEL), dist: d };
+    let w = lx * (ux * iy - uy * ix) / sp.inertia;
+    let x = pose.x, y = pose.y, a = pose.a, t = 0;
+    while (t < MAX_ROLL_SECS) {
+      const f = deskFriction(sp, vx, vy, w, a, DT);
+      vx = f[0]; vy = f[1]; w = f[2];
+      x += vx * DT; y += vy * DT; a += w * DT; t += DT;
+      if (vx === 0 && vy === 0 && w === 0) break;
+    }
+    return { x: x, y: y, a: a, dist: Math.hypot(x - pose.x, y - pose.y) };
   }
-  function impulseForPull(pull) { return Math.sqrt(Math.max(0, Math.min(1, pull))) * MAX_IMPULSE; }
+  /* pull (0..1 of the power meter) -> impulse. Distance grows with speed squared, so this keeps the meter linear. */
+  function impulseForPull(pull, skinId) { return Math.sqrt(Math.max(0, Math.min(1, pull))) * penSpec(skinId || 'blue').maxImpulse; }
 
   function standings(m) {
     return m.players.slice().sort(function (a, b) { return b.score - a.score; });
@@ -2959,7 +3050,7 @@ const PF = (function () {
 
   return {
     TEAMS: TEAMS, balanceTeams: balanceTeams, teamOf: teamOf, aliveSides: aliveSides, isOverFor: isOverFor,
-    TABLE: TABLE, PEN: PEN, MAX_IMPULSE: MAX_IMPULSE, MAX_TRAVEL: MAX_TRAVEL, predict: predict, impulseForPull: impulseForPull, MIN_PLAYERS: MIN_PLAYERS, MAX_PLAYERS: MAX_PLAYERS, DT: DT, SKINS: SKINS,
+    TABLE: TABLE, PEN: PEN, MAX_IMPULSE: MAX_IMPULSE, MAX_TRAVEL: MAX_TRAVEL, penSpec: penSpec, specOf: specOf, deskFriction: deskFriction, _resetSpecs: resetSpecs, predict: predict, impulseForPull: impulseForPull, MIN_PLAYERS: MIN_PLAYERS, MAX_PLAYERS: MAX_PLAYERS, DT: DT, SKINS: SKINS,
     skinById: skinById, defaultConfig: defaultConfig, normalizeConfig: normalizeConfig, startPositions: startPositions, onTable: onTable, tableFor: tableFor,
     newMatch: newMatch, startRound: startRound, nextTurn: nextTurn, checkShot: checkShot, skipTurn: skipTurn, settle: settle, forfeit: forfeit,
     Sim: Sim, beginShot: beginShot, simulateShot: simulateShot, penOf: penOf, alivePens: alivePens, nameOf: nameOf, standings: standings, normAngle: normAngle
@@ -3604,6 +3695,66 @@ const Net = {
   leave: function () { if (S.isHost && !H.local) hostClose(); else if (H.local && S.isHost) hostToLobby(); else clientLeave(); }
 };
 
+/* ===== progress: XP, levels and unlocks, saved in this browser only (no account) ===== */
+const LEVEL_XP = [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200, 4000, 5000];
+const DESKS = [
+  { id: 'oak',    name: 'Oak',       level: 1, base: ['#a8703d', '#b98150', '#a26a37'], grain: '70,35,10',  rim: ['#6f4421', '#8a5a2e'], ink: '30,45,120' },
+  { id: 'walnut', name: 'Walnut',    level: 3, base: ['#5e3a22', '#6e452a', '#563420'], grain: '25,12,4',   rim: ['#3b2414', '#4c2f1b'], ink: '235,205,150' },
+  { id: 'exam',   name: 'Exam hall', level: 5, base: ['#3f6b4f', '#4a7a5c', '#3a6349'], grain: '12,32,18',  rim: ['#27412f', '#335640'], ink: '240,240,220' },
+  { id: 'birch',  name: 'Birch',     level: 7, base: ['#d9b98a', '#e3c79c', '#d2b07f'], grain: '120,80,40', rim: ['#9c7a4c', '#b48e5d'], ink: '40,60,160' }
+];
+function defaultProfile() { return { v: 1, xp: 0, matches: 0, wins: 0, roundsWon: 0, kos: 0, selfOuts: 0, streak: 0, bestStreak: 0, desk: 'oak', flick: 'pull', seen: [] }; }
+function loadProfile() { const p = storeJSON('profile'); return p && p.v === 1 ? Object.assign(defaultProfile(), p) : defaultProfile(); }
+const PROF = { p: loadProfile(), last: null };
+function saveProfile() { storeJSON('profile', PROF.p); }
+function levelOf(xp) { let l = 1; for (let i = 1; i < LEVEL_XP.length; i++) if (xp >= LEVEL_XP[i]) l = i + 1; return l; }
+function levelProgress(xp) {
+  const l = levelOf(xp), lo = LEVEL_XP[l - 1], hi = LEVEL_XP[l];
+  return { level: l, into: xp - lo, need: hi === undefined ? null : hi - lo, toNext: hi === undefined ? null : hi - xp };
+}
+function myLevel() { return levelOf(PROF.p.xp); }
+function isUnlocked(skinId) { return myLevel() >= PF.skinById(skinId).level; }
+function deskUnlocked(id) { const d = DESKS.find(function (x) { return x.id === id; }); return !!d && myLevel() >= d.level; }
+function currentDesk() { const d = DESKS.find(function (x) { return x.id === PROF.p.desk; }); return d && deskUnlocked(d.id) ? d : DESKS[0]; }
+function usableSkin(id) { return validSkin(id) && isUnlocked(id) ? id : 'blue'; }
+function nextUnlock() {
+  const l = myLevel();
+  const items = PF.SKINS.map(function (s) { return { level: s.level, name: s.name }; })
+    .concat(DESKS.map(function (d) { return { level: d.level, name: d.name + ' desk' }; }))
+    .filter(function (x) { return x.level > l; }).sort(function (a, b) { return a.level - b.level; });
+  return items[0] || null;
+}
+/* award XP once per finished online match; returns the breakdown (also kept in PROF.last) */
+function awardMatch(m, me) {
+  if (!m || m.phase !== 'over' || !me) return null;
+  if (PROF.p.seen.indexOf(m.id) !== -1) return PROF.last && PROF.last.id === m.id ? PROF.last : null;
+  const pl = m.players.find(function (p) { return p.id === me; });
+  if (!pl) return null;
+  const teams = !!m.teamScore;
+  const roundsWon = teams ? m.teamScore[pl.team] : pl.score;
+  const won = teams ? m.winnerTeam === pl.team : m.winner === me;
+  const st = (m.stats && m.stats[me]) || { ko: 0, self: 0, mate: 0 };
+  const lines = [['Played a match', 20]];
+  if (roundsWon) lines.push(['Rounds won × ' + roundsWon, 30 * roundsWon]);
+  if (st.ko) lines.push(['Knock-offs × ' + st.ko, 15 * st.ko]);
+  if (won) lines.push([teams ? 'Team win' : 'Match win', 60]);
+  const streak = won ? PROF.p.streak + 1 : 0;
+  if (won && streak > 1) lines.push(['Win streak × ' + streak, 10 * Math.min(streak, 5)]);
+  const total = lines.reduce(function (a, l) { return a + l[1]; }, 0);
+  const before = levelOf(PROF.p.xp);
+  const p = PROF.p;
+  p.xp += total; p.matches++; if (won) p.wins++; p.roundsWon += roundsWon; p.kos += st.ko; p.selfOuts += st.self;
+  p.streak = streak; p.bestStreak = Math.max(p.bestStreak, streak);
+  p.seen.push(m.id); if (p.seen.length > 40) p.seen.splice(0, p.seen.length - 40);
+  saveProfile();
+  const after = levelOf(p.xp);
+  const unlocked = PF.SKINS.filter(function (s) { return s.level > before && s.level <= after; }).map(function (s) { return s.name; })
+    .concat(DESKS.filter(function (d) { return d.level > before && d.level <= after; }).map(function (d) { return d.name + ' desk'; }));
+  PROF.last = { id: m.id, lines: lines, total: total, before: before, after: after, unlocked: unlocked, won: won };
+  return PROF.last;
+}
+function resetProfile() { PROF.p = defaultProfile(); PROF.last = null; saveProfile(); }
+
 /* ===== ui: screens, desk renderer, flick controls ===== */
 let root, hdrEl, connEl, mainEl, toastEl;
 let stage = null;            // persistent { wrap, canvas, ctx, overlay, w, h, dpr, scale, wood }
@@ -3659,6 +3810,7 @@ function drawPen(ctx, skin, o) {
   o = o || {};
   const L = PF.PEN.len, W = PF.PEN.wid, hl = L / 2, hw = W / 2;
   ctx.save();
+  ctx.scale(skin.len / L, skin.wid / W);              // each pen type has its own length and thickness
   if (o.alpha !== undefined) ctx.globalAlpha = o.alpha;
   // shadow on the desk
   if (!o.noShadow) { ctx.save(); ctx.translate(0.05, 0.08); ctx.fillStyle = 'rgba(40,20,5,.32)'; rr(ctx, -hl, -hw, L, W, hw); ctx.fill(); ctx.restore(); }
@@ -3713,17 +3865,29 @@ function penPreview(skinId, w, hgt) {
   c.width = w * dpr; c.height = hgt * dpr; c.style.width = w + 'px'; c.style.height = hgt + 'px';
   c.className = 'penprev'; c.setAttribute('aria-hidden', 'true');
   const ctx = c.getContext('2d');
-  const s = (w * dpr) / (PF.PEN.len + 0.3);
+  const s = (w * dpr) / (1.76 + 0.3);                 // same scale for all, so size differences show
   ctx.setTransform(s, 0, 0, s, (w * dpr) / 2, (hgt * dpr) / 2);
   drawPen(ctx, PF.skinById(skinId), { noShadow: true });
   return c;
 }
+function statBar(label, v) {
+  return h('div', { class: 'stat' }, h('span', { class: 'sl', text: label }), h('span', { class: 'sbar' }, h('span', { class: 'sfill', style: 'width:' + Math.round(Math.max(0.08, Math.min(1, v)) * 100) + '%' })));
+}
+function penStats(skinId) {
+  const sk = PF.skinById(skinId);
+  return h('div', { class: 'penstats', id: 'penStats' },
+    h('div', { class: 'pshead' }, penPreview(sk.id, 120, 26), h('div', {}, h('strong', { text: sk.name }), h('p', { class: 'hint', text: sk.blurb }))),
+    h('div', { class: 'stats' },
+      statBar('Reach', (sk.reach - 5.2) / 3), statBar('Grip', (sk.roll - 0.55) / 0.45), statBar('Bounce', (sk.bounce - 0.35) / 0.48), statBar('Size', (sk.len * sk.wid - 0.25) / 0.12)));
+}
 function skinPicker(id, current, taken, onPick) {
-  return h('div', { class: 'skins', id: id, role: 'group', 'aria-label': 'Choose your pen' }, PF.SKINS.map(function (sk) {
+  return h('div', {}, h('div', { class: 'skins', id: id, role: 'group', 'aria-label': 'Choose your pen' }, PF.SKINS.map(function (sk) {
     const isTaken = !!(taken && taken[sk.id]);
-    return h('button', { type: 'button', class: 'skinb' + (sk.id === current ? ' on' : ''), 'aria-pressed': sk.id === current ? 'true' : 'false', disabled: isTaken, 'data-skin': sk.id,
-      onclick: function () { onPick(sk.id); SFX.click(); } }, penPreview(sk.id, 92, 22), h('span', { text: sk.name }));
-  }));
+    const locked = !isUnlocked(sk.id);
+    return h('button', { type: 'button', class: 'skinb' + (sk.id === current ? ' on' : '') + (locked ? ' locked' : ''), 'aria-pressed': sk.id === current ? 'true' : 'false', disabled: isTaken || locked, 'data-skin': sk.id,
+      'aria-label': sk.name + (locked ? ', unlocks at level ' + sk.level : isTaken ? ', taken' : ''),
+      onclick: function () { onPick(sk.id); SFX.click(); } }, penPreview(sk.id, 92, 22), h('span', { text: sk.name }), locked ? h('em', { class: 'lock', text: '\ud83d\udd12 Level ' + sk.level }) : null);
+  })), penStats(current && validSkin(current) ? current : 'blue'));
 }
 
 /* ---------- desk ---------- */
@@ -3765,8 +3929,9 @@ function makeWood(s) {
   const c = document.createElement('canvas'); c.width = W; c.height = Ht;
   const x = c.getContext('2d');
   let seed = 7; const rnd = function () { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const D = currentDesk();
   const g = x.createLinearGradient(0, 0, W, 0);
-  g.addColorStop(0, '#a8703d'); g.addColorStop(0.5, '#b98150'); g.addColorStop(1, '#a26a37');
+  g.addColorStop(0, D.base[0]); g.addColorStop(0.5, D.base[1]); g.addColorStop(1, D.base[2]);
   x.fillStyle = g; x.fillRect(0, 0, W, Ht);
   const planks = 3, pw = W / planks;
   for (let p = 0; p < planks; p++) {
@@ -3774,7 +3939,7 @@ function makeWood(s) {
     x.fillRect(p * pw, 0, pw, Ht);
     for (let i = 0; i < 26; i++) {
       const x0 = p * pw + rnd() * pw, amp = 2 + rnd() * 7, fr = 0.004 + rnd() * 0.01, ph = rnd() * 6;
-      x.strokeStyle = 'rgba(70,35,10,' + (0.05 + rnd() * 0.1) + ')'; x.lineWidth = 0.6 + rnd() * 1.6;
+      x.strokeStyle = 'rgba(' + D.grain + ',' + (0.05 + rnd() * 0.1) + ')'; x.lineWidth = 0.6 + rnd() * 1.6;
       x.beginPath();
       for (let y = 0; y <= Ht; y += 6) { const xx = x0 + Math.sin(y * fr + ph) * amp; if (y === 0) x.moveTo(xx, y); else x.lineTo(xx, y); }
       x.stroke();
@@ -3792,11 +3957,11 @@ function makeWood(s) {
   }
   x.save();                                        // ink doodles carved into the desk
   x.translate(W * 0.72, Ht * 0.9); x.rotate(-0.12);
-  x.fillStyle = 'rgba(30,45,120,.28)'; x.font = Math.round(k * 0.36) + 'px "Caveat", "Comic Sans MS", cursive';
+  x.fillStyle = 'rgba(' + D.ink + ',.28)'; x.font = Math.round(k * 0.36) + 'px "Caveat", "Comic Sans MS", cursive';
   x.fillText('desk champ →', 0, 0);
   x.restore();
   x.save(); x.translate(W * 0.16, Ht * 0.1); x.rotate(0.2);
-  x.strokeStyle = 'rgba(30,45,120,.25)'; x.lineWidth = Math.max(1, k * 0.025);
+  x.strokeStyle = 'rgba(' + D.ink + ',.25)'; x.lineWidth = Math.max(1, k * 0.025);
   x.beginPath(); for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * 4 * Math.PI / 5, r = k * 0.22; if (i === 0) x.moveTo(Math.cos(a) * r, Math.sin(a) * r); else x.lineTo(Math.cos(a) * r, Math.sin(a) * r); } x.closePath(); x.stroke();
   x.restore();
   return c;
@@ -3842,8 +4007,9 @@ function drawDesk() {
   const tw = desk().w, th = desk().h;
   // desk edge and shadow
   ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 24 * s.dpr; ctx.shadowOffsetY = 8 * s.dpr;
-  ctx.fillStyle = '#6f4421'; rr(ctx, -tw / 2 - 0.14, -th / 2 - 0.14, tw + 0.28, th + 0.28, 0.2); ctx.fill(); ctx.restore();
-  ctx.fillStyle = '#8a5a2e'; rr(ctx, -tw / 2 - 0.07, -th / 2 - 0.07, tw + 0.14, th + 0.14, 0.14); ctx.fill();
+  const D = currentDesk();
+  ctx.fillStyle = D.rim[0]; rr(ctx, -tw / 2 - 0.14, -th / 2 - 0.14, tw + 0.28, th + 0.28, 0.2); ctx.fill(); ctx.restore();
+  ctx.fillStyle = D.rim[1]; rr(ctx, -tw / 2 - 0.07, -th / 2 - 0.07, tw + 0.14, th + 0.14, 0.14); ctx.fill();
   if (s.wood) ctx.drawImage(s.wood, -tw / 2, -th / 2, tw, th);
   ctx.strokeStyle = 'rgba(255,235,200,.25)'; ctx.lineWidth = 0.02; ctx.strokeRect(-tw / 2, -th / 2, tw, th);
   if (!m) return;
@@ -3871,7 +4037,7 @@ function drawDesk() {
   // aim arrow (mine while dragging, or the shooter's live aim)
   let aim = null;
   if (drag && drag.cur && canShoot()) aim = { lx: drag.lx, dx: drag.vx, dy: drag.vy, mine: true };
-  else if (S.aim && m.phase === 'aim' && S.aim.k === m.turnNo && !shooterIsMe()) aim = { lx: S.aim.lx * PF.PEN.len / 2, dx: S.aim.dx, dy: S.aim.dy };
+  else if (S.aim && m.phase === 'aim' && S.aim.k === m.turnNo && !shooterIsMe()) aim = { lx: S.aim.lx * PF.specOf(m, m.turn).len / 2, dx: S.aim.dx, dy: S.aim.dy };
   if (aim) {
     const i = m.pens.findIndex(function (q) { return q.id === m.turn; });
     const p = poses[i];
@@ -3909,8 +4075,9 @@ function drawAim(ctx, pose, aim) {
   const p = Math.min(1, Math.hypot(aim.dx, aim.dy));
   if (p < 0.02) return;
   const ux = aim.dx / p, uy = aim.dy / p;
-  const J = PF.impulseForPull(p);
-  const ghost = PF.predict(pose, { lx: aim.lx, ix: ux * J, iy: uy * J });
+  const mm = match(), shooterSkin = mm.players.find(function (q) { return q.id === mm.turn; }).skin;
+  const J = PF.impulseForPull(p, shooterSkin);
+  const ghost = PF.predict(pose, { lx: aim.lx, ix: ux * J, iy: uy * J }, shooterSkin);
   const T = desk(); const offDesk = !PF.onTable(ghost.x, ghost.y, T);
   const col = 'hsl(' + Math.round(130 - 130 * p) + ' 90% 52%)';
   // rubber band back to the finger
@@ -3928,7 +4095,8 @@ function drawAim(ctx, pose, aim) {
   const m = match(); const me = m && m.players.find(function (q) { return q.id === m.turn; });
   drawPen(ctx, PF.skinById(me ? me.skin : 'blue'), { alpha: offDesk ? 0.25 : 0.35, noShadow: true });
   ctx.setLineDash([0.07, 0.07]); ctx.strokeStyle = offDesk ? 'rgba(255,80,60,.95)' : 'rgba(255,255,255,.9)'; ctx.lineWidth = 0.035;
-  rr(ctx, -PF.PEN.len / 2 - 0.03, -PF.PEN.wid / 2 - 0.03, PF.PEN.len + 0.06, PF.PEN.wid + 0.06, 0.1); ctx.stroke();
+  const gs = PF.penSpec(shooterSkin);
+  rr(ctx, -gs.len / 2 - 0.03, -gs.wid / 2 - 0.03, gs.len + 0.06, gs.wid + 0.06, 0.1); ctx.stroke();
   ctx.restore();
   // short direction arrow from the grab point
   const len = 0.35 + p * 0.9;
@@ -3964,9 +4132,9 @@ function onDown(e) {
   const c = Math.cos(p.a), sn = Math.sin(p.a);
   const rx = w[0] - p.x, ry = w[1] - p.y;
   const along = rx * c + ry * sn, perp = -rx * sn + ry * c;
-  const hl = PF.PEN.len / 2;
+  const hl = PF.specOf(match(), match().turn).len / 2;
   if (Math.abs(along) > hl + 0.35 || Math.abs(perp) > 0.55) {
-    if (Math.hypot(rx, ry) > 1.4) { toast('Press on your own pen (the glowing one), then pull back.'); return; }
+    if (Math.hypot(rx, ry) > 1.4) { toast('Press on your own pen (the glowing one), then ' + (PROF.p.flick === 'push' ? 'push forward.' : 'pull back.')); return; }
   }
   e.preventDefault();
   drag = { id: e.pointerId, lx: Math.max(-hl, Math.min(hl, along)), cur: null, vx: 0, vy: 0 };
@@ -3979,12 +4147,14 @@ function onMove(e) {
   const p = myPose(); if (!p) return;
   const w = evWorld(e);
   const gx = p.x + Math.cos(p.a) * drag.lx, gy = p.y + Math.sin(p.a) * drag.lx;
-  const dx = gx - w[0], dy = gy - w[1], d = Math.hypot(dx, dy);
+  // pull back like a slingshot (default), or push forward in the direction you want to flick
+  const push = PROF.p.flick === 'push';
+  const dx = push ? w[0] - gx : gx - w[0], dy = push ? w[1] - gy : gy - w[1], d = Math.hypot(dx, dy);
   const pw = Math.min(1, d / DRAG_FULL);
   drag.cur = w;
   drag.vx = d > 0 ? dx / d * pw : 0; drag.vy = d > 0 ? dy / d * pw : 0;
   const now = performance.now();
-  if (now - lastAimSent > 60) { lastAimSent = now; Net.aim({ lx: drag.lx / (PF.PEN.len / 2), dx: drag.vx, dy: drag.vy }); }
+  if (now - lastAimSent > 60) { lastAimSent = now; Net.aim({ lx: drag.lx / (PF.specOf(match(), match().turn).len / 2), dx: drag.vx, dy: drag.vy }); }
 }
 function onUp(e) {
   if (!drag || e.pointerId !== drag.id) return;
@@ -3993,7 +4163,7 @@ function onUp(e) {
   const pw = Math.hypot(d.vx, d.vy);
   if (!canShoot() || pw < 0.04) { Net.aim(null); return; }
   // The meter is the share of the full sliding distance; the landing ghost shows exactly where that is.
-  const J = PF.impulseForPull(pw) / pw;
+  const J = PF.impulseForPull(pw, match().players.find(function (q) { return q.id === match().turn; }).skin) / pw;
   Net.shoot({ lx: d.lx, ix: d.vx * J, iy: d.vy * J });
   buzz(15);
 }
@@ -4013,7 +4183,13 @@ onStateHook = function (prev, d) {
     if (pm.phase === 'aim' && m.phase === 'roll' && m.lastShot) SFX.flick(m.lastShot.power || 0.5);
     if (m.phase === 'aim' && (pm.turnNo !== m.turnNo || pm.phase !== 'aim') && (isLocal() || m.turn === S.me)) { SFX.turn(); if (!isLocal()) buzz(30); }
     if (pm.phase !== 'roundover' && m.phase === 'roundover') SFX.round();
-    if (pm.phase !== 'over' && m.phase === 'over') SFX.win();
+    if (pm.phase !== 'over' && m.phase === 'over') {
+      SFX.win();
+      if (!isLocal()) {
+        const r = awardMatch(m, S.me);
+        if (r && r.unlocked.length) setTimeout(function () { SFX.join(); toast('Unlocked: ' + r.unlocked.join(', ') + '!'); }, 900);
+      }
+    }
   } else if (m.phase === 'aim' && m.turn === S.me) SFX.turn();
 };
 function showReaction(pid, e) { S.floats.push({ pid: pid, e: e, t: performance.now() }); }
@@ -4064,7 +4240,8 @@ function homeScreen() {
     const nm = cleanName(S.name);
     if (!nm) { setErr('Type your name first.'); const el = document.getElementById('nameIn'); if (el) el.focus(); return null; }
     S.err = '';
-    if (!S.skin) { S.skin = PF.SKINS[hash(nm) % PF.SKINS.length].id; store('skin', S.skin); }
+    const open = PF.SKINS.filter(function (k) { return isUnlocked(k.id); });
+    if (!S.skin || !isUnlocked(S.skin)) { S.skin = open[hash(nm) % open.length].id; store('skin', S.skin); }
     store('name', nm);
     return nm;
   };
@@ -4075,11 +4252,12 @@ function homeScreen() {
     const nm = need(); if (!nm) return;
     const c = cleanCode(S.joinCode);
     if (c.length !== 4) { setErr('Room codes have 4 letters.'); return; }
-    clientJoin(c, nm, S.skin);
+    clientJoin(c, nm, usableSkin(S.skin));
   } }, codeIn, h('button', { class: 'btn primary', type: 'submit', id: 'joinBtn' }, 'Join room'));
-  const create = btn('Create a room', function () { const nm = need(); if (!nm) return; hostCreate(nm, S.skin); }, { kind: invited ? 'ghost' : 'primary big', id: 'createBtn' });
+  const create = btn('Create a room', function () { const nm = need(); if (!nm) return; hostCreate(nm, usableSkin(S.skin)); }, { kind: invited ? 'ghost' : 'primary big', id: 'createBtn' });
   if (invited) nodes.push(card(h('h3', { text: 'Join room' }), joinForm, h('p', { class: 'hint', text: 'Or start your own:' }), create));
   else nodes.push(card(h('h3', { text: 'Play online' }), create, h('div', { class: 'or' }, h('span', { text: 'or join friends' })), joinForm));
+  nodes.push(caseCard());
   nodes.push(localCard());
   nodes.push(howCard());
   return nodes;
@@ -4157,7 +4335,7 @@ function lobbyScreen() {
     sc.appendChild(h('div', { class: 'sitbox' }, h('h3', { text: 'Take a seat' }),
       h('input', { id: 'sitName', type: 'text', maxlength: '14', placeholder: 'Your name', 'aria-label': 'Your name', value: S.name, oninput: function (e) { S.name = e.target.value; } }),
       skinPicker('sitSkin', S.skin, taken, function (sk) { S.skin = sk; render(); }),
-      btn('Sit down', function () { if (!cleanName(S.name)) { setErr('Type your name first.'); return; } Net.sit(S.name, S.skin); }, { kind: 'primary', id: 'sitBtn', disabled: n >= PF.MAX_PLAYERS })));
+      btn('Sit down', function () { if (!cleanName(S.name)) { setErr('Type your name first.'); return; } Net.sit(S.name, usableSkin(S.skin)); }, { kind: 'primary', id: 'sitBtn', disabled: n >= PF.MAX_PLAYERS })));
   }
   nodes.push(sc);
   if (host) {
@@ -4203,7 +4381,7 @@ function statusText() {
   const m = match();
   if (m.phase === 'aim') {
     const tl = m.teamScore ? ' (' + teamName(PF.teamOf(m, m.turn)).replace(' team', '') + ')' : '';
-    if (shooterIsMe()) return (isLocal() ? nameOf(m.turn) + tl + ', your flick! ' : 'Your flick! ') + 'Press your glowing pen, pull back, let go.';
+    if (shooterIsMe()) return (isLocal() ? nameOf(m.turn) + tl + ', your flick! ' : 'Your flick! ') + (PROF.p.flick === 'push' ? 'Press your glowing pen, push the way you want it to go, let go.' : 'Press your glowing pen, pull back, let go.');
     return nameOf(m.turn) + tl + ' is lining up a shot…';
   }
   if (m.phase === 'roll') return m.lastShot ? nameOf(m.lastShot.by) + ' flicked at ' + Math.round(m.lastShot.power * 100) + '% power!' : 'Flying…';
@@ -4258,8 +4436,42 @@ function stageOverlay() {
       h('p', { class: 'ov-k', text: 'Match over' }),
       h('h2', { class: 'ov-t', id: 'winner', text: twin !== null ? teamName(twin) + ' wins the match!' : nameOf(w) + (w === S.me && !isLocal() ? ' (you!)' : '') + ' is the desk champion' }),
       twin !== null ? h('p', { class: 'ov-s', text: 'Champions: ' + mates }) : null,
+      PROF.last && PROF.last.id === m.id ? xpCard(PROF.last) : null,
       scoreList(m), h('div', { class: 'ovbtns' }, buttons)));
   }
+}
+function levelBar(id) {
+  const lp = levelProgress(PROF.p.xp);
+  return h('div', { class: 'lvl', id: id },
+    h('span', { class: 'lvbadge', text: 'Lv ' + lp.level }),
+    h('span', { class: 'lvbar' }, h('span', { class: 'lvfill', style: 'width:' + (lp.need ? Math.round(lp.into / lp.need * 100) : 100) + '%' })),
+    h('span', { class: 'lvtxt', text: lp.need ? lp.toNext + ' XP to level ' + (lp.level + 1) : 'Max level' }));
+}
+function xpCard(r) {
+  return h('div', { class: 'xpcard', id: 'xpCard' },
+    h('p', { class: 'xptotal', text: '+' + r.total + ' XP' }),
+    h('ul', { class: 'xplines' }, r.lines.map(function (l) { return h('li', {}, h('span', { text: l[0] }), h('span', { text: '+' + l[1] })); })),
+    levelBar('xpLevel'),
+    r.unlocked.length ? h('p', { class: 'unlocked', text: '\ud83c\udf89 Unlocked: ' + r.unlocked.join(', ') }) : null);
+}
+function caseCard() {
+  const p = PROF.p, nx = nextUnlock();
+  return h('details', { class: 'card case', id: 'caseD' },
+    h('summary', { class: 'sumh' }, 'Your pencil case ', h('span', { class: 'lvbadge', text: 'Lv ' + myLevel() })),
+    levelBar('homeLevel'),
+    nx ? h('p', { class: 'hint', text: 'Next unlock: ' + nx.name + ' at level ' + nx.level + '. Earn XP in online matches: playing, winning rounds, knocking pens off and winning streaks.' }) : h('p', { class: 'hint', text: 'Everything is unlocked. Show off.' }),
+    h('div', { class: 'statgrid' },
+      [['Matches', p.matches], ['Wins', p.wins], ['Rounds won', p.roundsWon], ['Knock-offs', p.kos], ['Best streak', p.bestStreak], ['Self-flicks off', p.selfOuts]]
+        .map(function (x) { return h('div', { class: 'sg' }, h('strong', { text: String(x[1]) }), h('span', { text: x[0] })); })),
+    h('div', { class: 'field', id: 'deskPick' }, h('span', { class: 'lbl', text: 'Your desk' }),
+      h('div', { class: 'seg' }, DESKS.map(function (d) {
+        const ok = deskUnlocked(d.id), on = currentDesk().id === d.id;
+        return h('button', { type: 'button', class: 'segb' + (on ? ' on' : ''), disabled: !ok, 'data-v': d.id, 'aria-pressed': on ? 'true' : 'false',
+          onclick: function () { PROF.p.desk = d.id; saveProfile(); if (stage) stage.w = 0; render(); } }, d.name + (ok ? '' : ' \ud83d\udd12' + d.level));
+      }))),
+    seg('Flick control', 'flickPick', [['pull', 'Pull back (slingshot)'], ['push', 'Push forward']], p.flick, function (v) { PROF.p.flick = v; saveProfile(); render(); }),
+    h('p', { class: 'hint', text: 'Progress is saved in this browser on this device. No account needed.' }),
+    confirmBtn('reset', 'Reset progress', 'Confirm: erase my progress', function () { resetProfile(); S.skin = usableSkin(S.skin); store('skin', S.skin); }));
 }
 function scoreList(m) {
   if (m.teamScore) {
@@ -4377,6 +4589,7 @@ render = function () {
 function boot() {
   root = document.getElementById('app');
   const t = store('theme'); if (t) setTheme(t);
+  if (S.skin && !isUnlocked(S.skin)) S.skin = 'blue';
   hdrEl = h('header', { class: 'hdr', id: 'hdr' });
   connEl = h('div', { class: 'connwrap', id: 'conn', hidden: true });
   mainEl = h('main', { class: 'main', id: 'main' });

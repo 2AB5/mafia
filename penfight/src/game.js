@@ -5,30 +5,74 @@ const PF = (function () {
 
   const TABLE = { w: 8, h: 12 };                // biggest desk, centred on 0,0 (a pen is 1.6 units long)
   /* the desk grows with the number of players: a tight duel for 2, the full desk for 4-5 */
-  function tableFor(n) { return n <= 2 ? { w: 6, h: 9 } : n === 3 ? { w: 7, h: 10.5 } : { w: 8, h: 12 }; }
-  const PEN = { len: 1.6, wid: 0.17 };
-  const PEN_MASS = PEN.len * PEN.wid;            // density 1
-  const PEN_INERTIA = PEN_MASS * (PEN.len * PEN.len + PEN.wid * PEN.wid) / 12;
-  // Desk friction: sliding (Coulomb) friction takes a fixed amount of speed off every second, so a pen
-  // slows steadily and stops dead, like on a real desk. Spin dies faster: a spinning pen grips along its length.
+  function tableFor(n) { return n <= 2 ? { w: 7, h: 10.5 } : n === 3 ? { w: 7.5, h: 11.25 } : { w: 8, h: 12 }; }
+  const PEN = { len: 1.6, wid: 0.17 };           // the standard ballpoint; other pens differ (see SKINS)
+  const BASE_MASS = PEN.len * PEN.wid;
+  // Desk friction is Coulomb (a fixed amount of speed off every second), so pens slow steadily and stop dead.
+  // It is direction-aware: pushed lengthwise a pen slides against full friction (SLIDE_DECEL); pushed
+  // sideways a round pen ROLLS, so it only feels SLIDE_DECEL * roll. A hexagonal pencil (roll 1) does not roll.
   const SLIDE_DECEL = 10.0;                      // units/s^2
   const SPIN_DECEL = 55;                         // rad/s^2
-  const MAX_TRAVEL = 7;                          // a full flick slides about 4.4 pen lengths if it hits nothing
-  const MAX_IMPULSE = PEN_MASS * Math.sqrt(2 * SLIDE_DECEL * MAX_TRAVEL);
+  const MAX_TRAVEL = 7;                          // a full lengthwise flick of the standard pen slides ~4.4 pen lengths
   const MIN_PLAYERS = 2, MAX_PLAYERS = 5;
   const DT = 1 / 60;
   const MAX_ROLL_SECS = 12;
 
+  /* Pens are sidegrades, balanced by bot duels (every pen wins roughly half its matches). They weigh about the
+     same; what differs is reach (full-flick distance), roll (how much grip it keeps when pushed sideways: round
+     pens roll, a hexagonal pencil does not), bounce and size. level is when the pen unlocks. */
   const SKINS = [
-    { id: 'blue',   name: 'Blue ballpoint', body: '#2f66d0', cap: '#18388a', band: '#c9d6f5', tip: '#d8d8d8', clear: true },
-    { id: 'black',  name: 'Black gel',      body: '#2a2a30', cap: '#0f0f12', band: '#8f8f9a', tip: '#cfcfcf' },
-    { id: 'red',    name: 'Red ballpoint',  body: '#cf2c2c', cap: '#7f1414', band: '#f3c1c1', tip: '#d8d8d8', clear: true },
-    { id: 'green',  name: 'Green gel',      body: '#2c9a55', cap: '#145e31', band: '#bfe9cf', tip: '#cfcfcf' },
-    { id: 'gold',   name: 'Fountain pen',   body: '#1f2130', cap: '#1f2130', band: '#d9b049', tip: '#d9b049' },
-    { id: 'pencil', name: 'Pencil',         body: '#f0bd22', cap: '#e889a2', band: '#c0c4c8', tip: '#3b3127', pencil: true },
-    { id: 'pink',   name: 'Highlighter',    body: '#ff5fa8', cap: '#d01f72', band: '#ffd1e6', tip: '#ffffff' }
+    { id: 'blue',   name: 'Blue ballpoint', body: '#2f66d0', cap: '#18388a', band: '#c9d6f5', tip: '#d8d8d8', clear: true,
+      len: 1.6, wid: 0.17, mass: 1.05, reach: 7.1, roll: 0.75, bounce: 0.6, level: 1, blurb: 'The all-rounder. Good at everything.' },
+    { id: 'red',    name: 'Red ballpoint',  body: '#cf2c2c', cap: '#7f1414', band: '#f3c1c1', tip: '#d8d8d8', clear: true,
+      len: 1.6, wid: 0.17, mass: 1.055, reach: 7.7, roll: 0.7, bounce: 0.62, level: 1, blurb: 'Longest flick, but rolls easily when hit.' },
+    { id: 'black',  name: 'Black gel',      body: '#2a2a30', cap: '#0f0f12', band: '#8f8f9a', tip: '#cfcfcf',
+      len: 1.6, wid: 0.18, mass: 1.03, reach: 6.45, roll: 0.85, bounce: 0.55, level: 1, blurb: 'Rubber grip: rolls less, shorter flick.' },
+    { id: 'green',  name: 'Fat marker',     body: '#2c9a55', cap: '#145e31', band: '#bfe9cf', tip: '#e9f7ee', fat: true,
+      len: 1.45, wid: 0.23, mass: 1.03, reach: 5.75, roll: 0.8, bounce: 0.5, level: 2, blurb: 'Fat and stubby: short, controlled flicks.' },
+    { id: 'pencil', name: 'Pencil',         body: '#f0bd22', cap: '#e889a2', band: '#c0c4c8', tip: '#3b3127', pencil: true,
+      len: 1.72, wid: 0.17, mass: 1.03, reach: 7.25, roll: 1.0, bounce: 0.45, level: 3, blurb: 'Hexagonal: never rolls. Dead bounce.' },
+    { id: 'pink',   name: 'Highlighter',    body: '#ff5fa8', cap: '#d01f72', band: '#ffd1e6', tip: '#ffffff', fat: true,
+      len: 1.4, wid: 0.24, mass: 1.075, reach: 7.85, roll: 0.65, bounce: 0.78, level: 4, blurb: 'Ricochet king: super bouncy and slippery.' },
+    { id: 'gold',   name: 'Fountain pen',   body: '#1f2130', cap: '#1f2130', band: '#d9b049', tip: '#d9b049',
+      len: 1.76, wid: 0.19, mass: 1.03, reach: 6.3, roll: 0.9, bounce: 0.45, level: 6, blurb: 'Long and steady: grips the desk, barely bounces.' }
   ];
   function skinById(id) { return SKINS.find(function (s) { return s.id === id; }) || SKINS[0]; }
+  /* physical numbers for a pen type: capsule (box + two round ends), mass, inertia, strongest flick */
+  const SPEC = {};
+  function penSpec(id) {
+    const sk = skinById(id);
+    if (SPEC[sk.id]) return SPEC[sk.id];
+    const r = sk.wid / 2, core = sk.len - sk.wid;
+    const mass = BASE_MASS * sk.mass;
+    const areaBox = core * sk.wid, areaCirc = Math.PI * r * r, area = areaBox + 2 * areaCirc;
+    const density = mass / area;
+    const mb = density * areaBox, mc = density * areaCirc;
+    const inertia = mb * (core * core + sk.wid * sk.wid) / 12 + 2 * (mc * r * r / 2 + mc * (core / 2) * (core / 2));
+    const spec = { id: sk.id, len: sk.len, wid: sk.wid, r: r, core: core, mass: mass, density: density, inertia: inertia,
+      aAlong: SLIDE_DECEL, aPerp: SLIDE_DECEL * sk.roll, bounce: sk.bounce, reach: sk.reach,
+      maxImpulse: mass * Math.sqrt(2 * SLIDE_DECEL * sk.reach) };
+    SPEC[sk.id] = spec;
+    return spec;
+  }
+  const MAX_IMPULSE = penSpec('blue').maxImpulse;     // the standard pen's full flick (kept for callers)
+  function resetSpecs() { Object.keys(SPEC).forEach(function (k) { delete SPEC[k]; }); }
+  /* one step of desk friction for a pen moving at (vx, vy) spinning at w with heading a */
+  function deskFriction(spec, vx, vy, w, a, dt) {
+    const sp = Math.hypot(vx, vy);
+    if (sp > 0) {
+      const c = Math.cos(a), s = Math.sin(a);
+      let vl = vx * c + vy * s, vp = -vx * s + vy * c;
+      const dl = spec.aAlong * dt * Math.abs(vl) / sp, dp = spec.aPerp * dt * Math.abs(vp) / sp;
+      vl = Math.abs(vl) <= dl ? 0 : vl - Math.sign(vl) * dl;
+      vp = Math.abs(vp) <= dp ? 0 : vp - Math.sign(vp) * dp;
+      vx = vl * c - vp * s; vy = vl * s + vp * c;
+      if (Math.hypot(vx, vy) < 0.004) { vx = 0; vy = 0; }
+    }
+    const dw = SPIN_DECEL * dt;
+    w = Math.abs(w) <= dw ? 0 : w - Math.sign(w) * dw;
+    return [vx, vy, w];
+  }
 
   const TEAMS = [{ name: 'Blue team', color: '#2f66d0' }, { name: 'Red team', color: '#d6455d' }];
   function defaultConfig() { return { target: 3, turnSecs: 30, teams: false }; }
@@ -66,10 +110,11 @@ const PF = (function () {
     for (let i = 0; i < n; i++) {
       const th = rot + (i / n) * Math.PI * 2;
       let x = rx * Math.cos(th), y = ry * Math.sin(th);
-      if (n === 2) { x = (rng() - 0.5) * t.w * 0.2; y = (i === 0 ? -1 : 1) * t.h * 0.275; }
-      // pens lie roughly sideways to the centre, with a little randomness
+      if (n === 2) { x = (rng() - 0.5) * t.w * 0.2; y = (i === 0 ? -1 : 1) * t.h * 0.22; }
+      // pens start pointing roughly at the centre (in a duel, at a 45 degree slant) so no opening flick can
+      // land a clean tip-to-tip or broadside hit; tested: an opening full flick wins a duel outright ~3% of the time
       const facing = Math.atan2(-y, -x);
-      const a = facing + Math.PI / 2 + (rng() - 0.5) * 0.9;
+      const a = facing + (n === 2 ? (i === 0 ? 1 : -1) * Math.PI / 4 : 0) + (rng() - 0.5) * 0.7;
       out.push({ x: round3(x), y: round3(y), a: round3(normAngle(a)) });
     }
     return out;
@@ -98,6 +143,7 @@ const PF = (function () {
       id: opts.id || ('m' + Math.floor(rng() * 1e9).toString(36)),
       cfg: cfg,
       players: opts.players.map(function (p) { const q = { id: p.id, name: cleanName(p.name), skin: skinById(p.skin).id, score: 0 }; if (cfg.teams) q.team = p.team; return q; }),
+      stats: (function () { const o = {}; opts.players.forEach(function (p) { o[p.id] = { ko: 0, self: 0, mate: 0 }; }); return o; })(),
       table: tableFor(n),
       teamScore: cfg.teams ? [0, 0] : null,
       teamNext: cfg.teams ? [0, 0] : null,
@@ -146,6 +192,7 @@ const PF = (function () {
     }
     return m;
   }
+  function specOf(m, id) { const p = m.players.find(function (q) { return q.id === id; }); return penSpec(p ? p.skin : 'blue'); }
   function nameOf(m, id) { const p = m.players.find(function (q) { return q.id === id; }); return p ? p.name : 'Player'; }
   function penOf(m, id) { return m.pens.find(function (q) { return q.id === id; }) || null; }
   function alivePens(m) { return m.pens.filter(function (p) { return !p.out; }); }
@@ -192,13 +239,14 @@ const PF = (function () {
     if (shot.turnNo !== undefined && shot.turnNo !== m.turnNo) return null;
     const pen = penOf(m, pid);
     if (!pen || pen.out) return null;
+    const sp = specOf(m, pid);
     let lx = Number(shot.lx), ix = Number(shot.ix), iy = Number(shot.iy);
     if (!isFinite(lx) || !isFinite(ix) || !isFinite(iy)) return null;
-    lx = Math.max(-PEN.len / 2, Math.min(PEN.len / 2, lx));
+    lx = Math.max(-sp.len / 2, Math.min(sp.len / 2, lx));
     let mag = Math.hypot(ix, iy);
     if (mag < 0.02) return null;
-    if (mag > MAX_IMPULSE) { ix = ix / mag * MAX_IMPULSE; iy = iy / mag * MAX_IMPULSE; mag = MAX_IMPULSE; }
-    return { lx: lx, ix: ix, iy: iy, power: mag / MAX_IMPULSE };
+    if (mag > sp.maxImpulse) { ix = ix / mag * sp.maxImpulse; iy = iy / mag * sp.maxImpulse; mag = sp.maxImpulse; }
+    return { lx: lx, ix: ix, iy: iy, power: mag / sp.maxImpulse };
   }
 
   /* skip the current player (time ran out / left) */
@@ -222,6 +270,7 @@ const PF = (function () {
     if (fell.length) {
       fell.forEach(function (id) {
         const mate = m.teamScore && teamOf(m, id) === teamOf(m, shooter);
+        if (m.stats && m.stats[shooter]) { if (id === shooter) m.stats[shooter].self++; else if (mate) m.stats[shooter].mate++; else m.stats[shooter].ko++; }
         addLog(m, id === shooter ? nameOf(m, id) + ' flicked themselves off the desk!'
           : mate ? nameOf(m, shooter) + ' knocked their own teammate ' + nameOf(m, id) + ' off!'
           : nameOf(m, id) + ' was knocked off by ' + nameOf(m, shooter) + '.');
@@ -281,10 +330,15 @@ const PF = (function () {
     this.hits = 0;
     this.t = 0;
     const self = this;
+    this.specs = m.pens.map(function (pen) { return specOf(m, pen.id); });
     m.pens.forEach(function (pen, i) {
       if (pen.out) { self.bodies.push(null); return; }
+      const sp = self.specs[i];
       const b = self.world.createBody({ type: 'dynamic', position: pl.Vec2(pen.x, pen.y), angle: pen.a, linearDamping: 0, angularDamping: 0, bullet: true });
-      b.createFixture(pl.Box(PEN.len / 2, PEN.wid / 2), { density: 1, friction: 0.45, restitution: 0.6 });
+      const fx = { density: sp.density, friction: 0.45, restitution: sp.bounce };
+      b.createFixture(pl.Box(sp.core / 2, sp.r), fx);                                     // barrel
+      b.createFixture(pl.Circle(pl.Vec2(sp.core / 2, 0), sp.r), fx);                      // rounded ends
+      b.createFixture(pl.Circle(pl.Vec2(-sp.core / 2, 0), sp.r), fx);
       b.setUserData(i);
       self.bodies.push(b);
     });
@@ -304,12 +358,11 @@ const PF = (function () {
     for (let i = 0; i < this.bodies.length; i++) {
       const b = this.bodies[i];
       if (!b) continue;
-      const v = b.getLinearVelocity(), sp = Math.hypot(v.x, v.y), dv = SLIDE_DECEL * DT;
-      if (sp <= dv) { if (sp > 0) b.setLinearVelocity(pl.Vec2(0, 0)); }
-      else b.setLinearVelocity(pl.Vec2(v.x * (1 - dv / sp), v.y * (1 - dv / sp)));
-      const w = b.getAngularVelocity(), dw = SPIN_DECEL * DT;
-      if (Math.abs(w) <= dw) { if (w !== 0) b.setAngularVelocity(0); }
-      else b.setAngularVelocity(w - Math.sign(w) * dw);
+      const v = b.getLinearVelocity(), w = b.getAngularVelocity();
+      if (v.x === 0 && v.y === 0 && w === 0) continue;
+      const f = deskFriction(this.specs[i], v.x, v.y, w, b.getAngle(), DT);
+      b.setLinearVelocity(pl.Vec2(f[0], f[1]));
+      b.setAngularVelocity(f[2]);
     }
     this.world.step(DT, 8, 3);
     this.t += DT;
@@ -373,19 +426,28 @@ const PF = (function () {
     return settle(m, sim.poses(m));
   }
 
-  /* where a flick would leave the pen if it hit nothing: { x, y, a, dist } */
-  function predict(pose, shot) {
+  /* where a flick would leave the pen if it hit nothing: { x, y, a, dist }. Runs the same friction as the
+     simulation step by step (friction depends on which way the pen points, so there is no simple formula). */
+  function predict(pose, shot, skinId) {
+    const sp = penSpec(skinId || 'blue');
     let ix = shot.ix, iy = shot.iy;
     const mag = Math.hypot(ix, iy);
-    if (mag > MAX_IMPULSE) { ix = ix / mag * MAX_IMPULSE; iy = iy / mag * MAX_IMPULSE; }
-    const lx = Math.max(-PEN.len / 2, Math.min(PEN.len / 2, shot.lx || 0));
-    const vx = ix / PEN_MASS, vy = iy / PEN_MASS, v = Math.hypot(vx, vy);
+    if (mag > sp.maxImpulse) { ix = ix / mag * sp.maxImpulse; iy = iy / mag * sp.maxImpulse; }
+    const lx = Math.max(-sp.len / 2, Math.min(sp.len / 2, shot.lx || 0));
+    let vx = ix / sp.mass, vy = iy / sp.mass;
     const ux = Math.cos(pose.a), uy = Math.sin(pose.a);
-    const w0 = lx * (ux * iy - uy * ix) / PEN_INERTIA;
-    const d = v * v / (2 * SLIDE_DECEL);
-    return { x: pose.x + (v ? vx / v : 0) * d, y: pose.y + (v ? vy / v : 0) * d, a: pose.a + Math.sign(w0) * w0 * w0 / (2 * SPIN_DECEL), dist: d };
+    let w = lx * (ux * iy - uy * ix) / sp.inertia;
+    let x = pose.x, y = pose.y, a = pose.a, t = 0;
+    while (t < MAX_ROLL_SECS) {
+      const f = deskFriction(sp, vx, vy, w, a, DT);
+      vx = f[0]; vy = f[1]; w = f[2];
+      x += vx * DT; y += vy * DT; a += w * DT; t += DT;
+      if (vx === 0 && vy === 0 && w === 0) break;
+    }
+    return { x: x, y: y, a: a, dist: Math.hypot(x - pose.x, y - pose.y) };
   }
-  function impulseForPull(pull) { return Math.sqrt(Math.max(0, Math.min(1, pull))) * MAX_IMPULSE; }
+  /* pull (0..1 of the power meter) -> impulse. Distance grows with speed squared, so this keeps the meter linear. */
+  function impulseForPull(pull, skinId) { return Math.sqrt(Math.max(0, Math.min(1, pull))) * penSpec(skinId || 'blue').maxImpulse; }
 
   function standings(m) {
     return m.players.slice().sort(function (a, b) { return b.score - a.score; });
@@ -394,7 +456,7 @@ const PF = (function () {
 
   return {
     TEAMS: TEAMS, balanceTeams: balanceTeams, teamOf: teamOf, aliveSides: aliveSides, isOverFor: isOverFor,
-    TABLE: TABLE, PEN: PEN, MAX_IMPULSE: MAX_IMPULSE, MAX_TRAVEL: MAX_TRAVEL, predict: predict, impulseForPull: impulseForPull, MIN_PLAYERS: MIN_PLAYERS, MAX_PLAYERS: MAX_PLAYERS, DT: DT, SKINS: SKINS,
+    TABLE: TABLE, PEN: PEN, MAX_IMPULSE: MAX_IMPULSE, MAX_TRAVEL: MAX_TRAVEL, penSpec: penSpec, specOf: specOf, deskFriction: deskFriction, _resetSpecs: resetSpecs, predict: predict, impulseForPull: impulseForPull, MIN_PLAYERS: MIN_PLAYERS, MAX_PLAYERS: MAX_PLAYERS, DT: DT, SKINS: SKINS,
     skinById: skinById, defaultConfig: defaultConfig, normalizeConfig: normalizeConfig, startPositions: startPositions, onTable: onTable, tableFor: tableFor,
     newMatch: newMatch, startRound: startRound, nextTurn: nextTurn, checkShot: checkShot, skipTurn: skipTurn, settle: settle, forfeit: forfeit,
     Sim: Sim, beginShot: beginShot, simulateShot: simulateShot, penOf: penOf, alivePens: alivePens, nameOf: nameOf, standings: standings, normAngle: normAngle

@@ -53,6 +53,7 @@ function drawPen(ctx, skin, o) {
   o = o || {};
   const L = PF.PEN.len, W = PF.PEN.wid, hl = L / 2, hw = W / 2;
   ctx.save();
+  ctx.scale(skin.len / L, skin.wid / W);              // each pen type has its own length and thickness
   if (o.alpha !== undefined) ctx.globalAlpha = o.alpha;
   // shadow on the desk
   if (!o.noShadow) { ctx.save(); ctx.translate(0.05, 0.08); ctx.fillStyle = 'rgba(40,20,5,.32)'; rr(ctx, -hl, -hw, L, W, hw); ctx.fill(); ctx.restore(); }
@@ -107,17 +108,29 @@ function penPreview(skinId, w, hgt) {
   c.width = w * dpr; c.height = hgt * dpr; c.style.width = w + 'px'; c.style.height = hgt + 'px';
   c.className = 'penprev'; c.setAttribute('aria-hidden', 'true');
   const ctx = c.getContext('2d');
-  const s = (w * dpr) / (PF.PEN.len + 0.3);
+  const s = (w * dpr) / (1.76 + 0.3);                 // same scale for all, so size differences show
   ctx.setTransform(s, 0, 0, s, (w * dpr) / 2, (hgt * dpr) / 2);
   drawPen(ctx, PF.skinById(skinId), { noShadow: true });
   return c;
 }
+function statBar(label, v) {
+  return h('div', { class: 'stat' }, h('span', { class: 'sl', text: label }), h('span', { class: 'sbar' }, h('span', { class: 'sfill', style: 'width:' + Math.round(Math.max(0.08, Math.min(1, v)) * 100) + '%' })));
+}
+function penStats(skinId) {
+  const sk = PF.skinById(skinId);
+  return h('div', { class: 'penstats', id: 'penStats' },
+    h('div', { class: 'pshead' }, penPreview(sk.id, 120, 26), h('div', {}, h('strong', { text: sk.name }), h('p', { class: 'hint', text: sk.blurb }))),
+    h('div', { class: 'stats' },
+      statBar('Reach', (sk.reach - 5.2) / 3), statBar('Grip', (sk.roll - 0.55) / 0.45), statBar('Bounce', (sk.bounce - 0.35) / 0.48), statBar('Size', (sk.len * sk.wid - 0.25) / 0.12)));
+}
 function skinPicker(id, current, taken, onPick) {
-  return h('div', { class: 'skins', id: id, role: 'group', 'aria-label': 'Choose your pen' }, PF.SKINS.map(function (sk) {
+  return h('div', {}, h('div', { class: 'skins', id: id, role: 'group', 'aria-label': 'Choose your pen' }, PF.SKINS.map(function (sk) {
     const isTaken = !!(taken && taken[sk.id]);
-    return h('button', { type: 'button', class: 'skinb' + (sk.id === current ? ' on' : ''), 'aria-pressed': sk.id === current ? 'true' : 'false', disabled: isTaken, 'data-skin': sk.id,
-      onclick: function () { onPick(sk.id); SFX.click(); } }, penPreview(sk.id, 92, 22), h('span', { text: sk.name }));
-  }));
+    const locked = !isUnlocked(sk.id);
+    return h('button', { type: 'button', class: 'skinb' + (sk.id === current ? ' on' : '') + (locked ? ' locked' : ''), 'aria-pressed': sk.id === current ? 'true' : 'false', disabled: isTaken || locked, 'data-skin': sk.id,
+      'aria-label': sk.name + (locked ? ', unlocks at level ' + sk.level : isTaken ? ', taken' : ''),
+      onclick: function () { onPick(sk.id); SFX.click(); } }, penPreview(sk.id, 92, 22), h('span', { text: sk.name }), locked ? h('em', { class: 'lock', text: '\ud83d\udd12 Level ' + sk.level }) : null);
+  })), penStats(current && validSkin(current) ? current : 'blue'));
 }
 
 /* ---------- desk ---------- */
@@ -159,8 +172,9 @@ function makeWood(s) {
   const c = document.createElement('canvas'); c.width = W; c.height = Ht;
   const x = c.getContext('2d');
   let seed = 7; const rnd = function () { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const D = currentDesk();
   const g = x.createLinearGradient(0, 0, W, 0);
-  g.addColorStop(0, '#a8703d'); g.addColorStop(0.5, '#b98150'); g.addColorStop(1, '#a26a37');
+  g.addColorStop(0, D.base[0]); g.addColorStop(0.5, D.base[1]); g.addColorStop(1, D.base[2]);
   x.fillStyle = g; x.fillRect(0, 0, W, Ht);
   const planks = 3, pw = W / planks;
   for (let p = 0; p < planks; p++) {
@@ -168,7 +182,7 @@ function makeWood(s) {
     x.fillRect(p * pw, 0, pw, Ht);
     for (let i = 0; i < 26; i++) {
       const x0 = p * pw + rnd() * pw, amp = 2 + rnd() * 7, fr = 0.004 + rnd() * 0.01, ph = rnd() * 6;
-      x.strokeStyle = 'rgba(70,35,10,' + (0.05 + rnd() * 0.1) + ')'; x.lineWidth = 0.6 + rnd() * 1.6;
+      x.strokeStyle = 'rgba(' + D.grain + ',' + (0.05 + rnd() * 0.1) + ')'; x.lineWidth = 0.6 + rnd() * 1.6;
       x.beginPath();
       for (let y = 0; y <= Ht; y += 6) { const xx = x0 + Math.sin(y * fr + ph) * amp; if (y === 0) x.moveTo(xx, y); else x.lineTo(xx, y); }
       x.stroke();
@@ -186,11 +200,11 @@ function makeWood(s) {
   }
   x.save();                                        // ink doodles carved into the desk
   x.translate(W * 0.72, Ht * 0.9); x.rotate(-0.12);
-  x.fillStyle = 'rgba(30,45,120,.28)'; x.font = Math.round(k * 0.36) + 'px "Caveat", "Comic Sans MS", cursive';
+  x.fillStyle = 'rgba(' + D.ink + ',.28)'; x.font = Math.round(k * 0.36) + 'px "Caveat", "Comic Sans MS", cursive';
   x.fillText('desk champ →', 0, 0);
   x.restore();
   x.save(); x.translate(W * 0.16, Ht * 0.1); x.rotate(0.2);
-  x.strokeStyle = 'rgba(30,45,120,.25)'; x.lineWidth = Math.max(1, k * 0.025);
+  x.strokeStyle = 'rgba(' + D.ink + ',.25)'; x.lineWidth = Math.max(1, k * 0.025);
   x.beginPath(); for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * 4 * Math.PI / 5, r = k * 0.22; if (i === 0) x.moveTo(Math.cos(a) * r, Math.sin(a) * r); else x.lineTo(Math.cos(a) * r, Math.sin(a) * r); } x.closePath(); x.stroke();
   x.restore();
   return c;
@@ -236,8 +250,9 @@ function drawDesk() {
   const tw = desk().w, th = desk().h;
   // desk edge and shadow
   ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 24 * s.dpr; ctx.shadowOffsetY = 8 * s.dpr;
-  ctx.fillStyle = '#6f4421'; rr(ctx, -tw / 2 - 0.14, -th / 2 - 0.14, tw + 0.28, th + 0.28, 0.2); ctx.fill(); ctx.restore();
-  ctx.fillStyle = '#8a5a2e'; rr(ctx, -tw / 2 - 0.07, -th / 2 - 0.07, tw + 0.14, th + 0.14, 0.14); ctx.fill();
+  const D = currentDesk();
+  ctx.fillStyle = D.rim[0]; rr(ctx, -tw / 2 - 0.14, -th / 2 - 0.14, tw + 0.28, th + 0.28, 0.2); ctx.fill(); ctx.restore();
+  ctx.fillStyle = D.rim[1]; rr(ctx, -tw / 2 - 0.07, -th / 2 - 0.07, tw + 0.14, th + 0.14, 0.14); ctx.fill();
   if (s.wood) ctx.drawImage(s.wood, -tw / 2, -th / 2, tw, th);
   ctx.strokeStyle = 'rgba(255,235,200,.25)'; ctx.lineWidth = 0.02; ctx.strokeRect(-tw / 2, -th / 2, tw, th);
   if (!m) return;
@@ -265,7 +280,7 @@ function drawDesk() {
   // aim arrow (mine while dragging, or the shooter's live aim)
   let aim = null;
   if (drag && drag.cur && canShoot()) aim = { lx: drag.lx, dx: drag.vx, dy: drag.vy, mine: true };
-  else if (S.aim && m.phase === 'aim' && S.aim.k === m.turnNo && !shooterIsMe()) aim = { lx: S.aim.lx * PF.PEN.len / 2, dx: S.aim.dx, dy: S.aim.dy };
+  else if (S.aim && m.phase === 'aim' && S.aim.k === m.turnNo && !shooterIsMe()) aim = { lx: S.aim.lx * PF.specOf(m, m.turn).len / 2, dx: S.aim.dx, dy: S.aim.dy };
   if (aim) {
     const i = m.pens.findIndex(function (q) { return q.id === m.turn; });
     const p = poses[i];
@@ -303,8 +318,9 @@ function drawAim(ctx, pose, aim) {
   const p = Math.min(1, Math.hypot(aim.dx, aim.dy));
   if (p < 0.02) return;
   const ux = aim.dx / p, uy = aim.dy / p;
-  const J = PF.impulseForPull(p);
-  const ghost = PF.predict(pose, { lx: aim.lx, ix: ux * J, iy: uy * J });
+  const mm = match(), shooterSkin = mm.players.find(function (q) { return q.id === mm.turn; }).skin;
+  const J = PF.impulseForPull(p, shooterSkin);
+  const ghost = PF.predict(pose, { lx: aim.lx, ix: ux * J, iy: uy * J }, shooterSkin);
   const T = desk(); const offDesk = !PF.onTable(ghost.x, ghost.y, T);
   const col = 'hsl(' + Math.round(130 - 130 * p) + ' 90% 52%)';
   // rubber band back to the finger
@@ -322,7 +338,8 @@ function drawAim(ctx, pose, aim) {
   const m = match(); const me = m && m.players.find(function (q) { return q.id === m.turn; });
   drawPen(ctx, PF.skinById(me ? me.skin : 'blue'), { alpha: offDesk ? 0.25 : 0.35, noShadow: true });
   ctx.setLineDash([0.07, 0.07]); ctx.strokeStyle = offDesk ? 'rgba(255,80,60,.95)' : 'rgba(255,255,255,.9)'; ctx.lineWidth = 0.035;
-  rr(ctx, -PF.PEN.len / 2 - 0.03, -PF.PEN.wid / 2 - 0.03, PF.PEN.len + 0.06, PF.PEN.wid + 0.06, 0.1); ctx.stroke();
+  const gs = PF.penSpec(shooterSkin);
+  rr(ctx, -gs.len / 2 - 0.03, -gs.wid / 2 - 0.03, gs.len + 0.06, gs.wid + 0.06, 0.1); ctx.stroke();
   ctx.restore();
   // short direction arrow from the grab point
   const len = 0.35 + p * 0.9;
@@ -358,9 +375,9 @@ function onDown(e) {
   const c = Math.cos(p.a), sn = Math.sin(p.a);
   const rx = w[0] - p.x, ry = w[1] - p.y;
   const along = rx * c + ry * sn, perp = -rx * sn + ry * c;
-  const hl = PF.PEN.len / 2;
+  const hl = PF.specOf(match(), match().turn).len / 2;
   if (Math.abs(along) > hl + 0.35 || Math.abs(perp) > 0.55) {
-    if (Math.hypot(rx, ry) > 1.4) { toast('Press on your own pen (the glowing one), then pull back.'); return; }
+    if (Math.hypot(rx, ry) > 1.4) { toast('Press on your own pen (the glowing one), then ' + (PROF.p.flick === 'push' ? 'push forward.' : 'pull back.')); return; }
   }
   e.preventDefault();
   drag = { id: e.pointerId, lx: Math.max(-hl, Math.min(hl, along)), cur: null, vx: 0, vy: 0 };
@@ -373,12 +390,14 @@ function onMove(e) {
   const p = myPose(); if (!p) return;
   const w = evWorld(e);
   const gx = p.x + Math.cos(p.a) * drag.lx, gy = p.y + Math.sin(p.a) * drag.lx;
-  const dx = gx - w[0], dy = gy - w[1], d = Math.hypot(dx, dy);
+  // pull back like a slingshot (default), or push forward in the direction you want to flick
+  const push = PROF.p.flick === 'push';
+  const dx = push ? w[0] - gx : gx - w[0], dy = push ? w[1] - gy : gy - w[1], d = Math.hypot(dx, dy);
   const pw = Math.min(1, d / DRAG_FULL);
   drag.cur = w;
   drag.vx = d > 0 ? dx / d * pw : 0; drag.vy = d > 0 ? dy / d * pw : 0;
   const now = performance.now();
-  if (now - lastAimSent > 60) { lastAimSent = now; Net.aim({ lx: drag.lx / (PF.PEN.len / 2), dx: drag.vx, dy: drag.vy }); }
+  if (now - lastAimSent > 60) { lastAimSent = now; Net.aim({ lx: drag.lx / (PF.specOf(match(), match().turn).len / 2), dx: drag.vx, dy: drag.vy }); }
 }
 function onUp(e) {
   if (!drag || e.pointerId !== drag.id) return;
@@ -387,7 +406,7 @@ function onUp(e) {
   const pw = Math.hypot(d.vx, d.vy);
   if (!canShoot() || pw < 0.04) { Net.aim(null); return; }
   // The meter is the share of the full sliding distance; the landing ghost shows exactly where that is.
-  const J = PF.impulseForPull(pw) / pw;
+  const J = PF.impulseForPull(pw, match().players.find(function (q) { return q.id === match().turn; }).skin) / pw;
   Net.shoot({ lx: d.lx, ix: d.vx * J, iy: d.vy * J });
   buzz(15);
 }
@@ -407,7 +426,13 @@ onStateHook = function (prev, d) {
     if (pm.phase === 'aim' && m.phase === 'roll' && m.lastShot) SFX.flick(m.lastShot.power || 0.5);
     if (m.phase === 'aim' && (pm.turnNo !== m.turnNo || pm.phase !== 'aim') && (isLocal() || m.turn === S.me)) { SFX.turn(); if (!isLocal()) buzz(30); }
     if (pm.phase !== 'roundover' && m.phase === 'roundover') SFX.round();
-    if (pm.phase !== 'over' && m.phase === 'over') SFX.win();
+    if (pm.phase !== 'over' && m.phase === 'over') {
+      SFX.win();
+      if (!isLocal()) {
+        const r = awardMatch(m, S.me);
+        if (r && r.unlocked.length) setTimeout(function () { SFX.join(); toast('Unlocked: ' + r.unlocked.join(', ') + '!'); }, 900);
+      }
+    }
   } else if (m.phase === 'aim' && m.turn === S.me) SFX.turn();
 };
 function showReaction(pid, e) { S.floats.push({ pid: pid, e: e, t: performance.now() }); }
@@ -458,7 +483,8 @@ function homeScreen() {
     const nm = cleanName(S.name);
     if (!nm) { setErr('Type your name first.'); const el = document.getElementById('nameIn'); if (el) el.focus(); return null; }
     S.err = '';
-    if (!S.skin) { S.skin = PF.SKINS[hash(nm) % PF.SKINS.length].id; store('skin', S.skin); }
+    const open = PF.SKINS.filter(function (k) { return isUnlocked(k.id); });
+    if (!S.skin || !isUnlocked(S.skin)) { S.skin = open[hash(nm) % open.length].id; store('skin', S.skin); }
     store('name', nm);
     return nm;
   };
@@ -469,11 +495,12 @@ function homeScreen() {
     const nm = need(); if (!nm) return;
     const c = cleanCode(S.joinCode);
     if (c.length !== 4) { setErr('Room codes have 4 letters.'); return; }
-    clientJoin(c, nm, S.skin);
+    clientJoin(c, nm, usableSkin(S.skin));
   } }, codeIn, h('button', { class: 'btn primary', type: 'submit', id: 'joinBtn' }, 'Join room'));
-  const create = btn('Create a room', function () { const nm = need(); if (!nm) return; hostCreate(nm, S.skin); }, { kind: invited ? 'ghost' : 'primary big', id: 'createBtn' });
+  const create = btn('Create a room', function () { const nm = need(); if (!nm) return; hostCreate(nm, usableSkin(S.skin)); }, { kind: invited ? 'ghost' : 'primary big', id: 'createBtn' });
   if (invited) nodes.push(card(h('h3', { text: 'Join room' }), joinForm, h('p', { class: 'hint', text: 'Or start your own:' }), create));
   else nodes.push(card(h('h3', { text: 'Play online' }), create, h('div', { class: 'or' }, h('span', { text: 'or join friends' })), joinForm));
+  nodes.push(caseCard());
   nodes.push(localCard());
   nodes.push(howCard());
   return nodes;
@@ -551,7 +578,7 @@ function lobbyScreen() {
     sc.appendChild(h('div', { class: 'sitbox' }, h('h3', { text: 'Take a seat' }),
       h('input', { id: 'sitName', type: 'text', maxlength: '14', placeholder: 'Your name', 'aria-label': 'Your name', value: S.name, oninput: function (e) { S.name = e.target.value; } }),
       skinPicker('sitSkin', S.skin, taken, function (sk) { S.skin = sk; render(); }),
-      btn('Sit down', function () { if (!cleanName(S.name)) { setErr('Type your name first.'); return; } Net.sit(S.name, S.skin); }, { kind: 'primary', id: 'sitBtn', disabled: n >= PF.MAX_PLAYERS })));
+      btn('Sit down', function () { if (!cleanName(S.name)) { setErr('Type your name first.'); return; } Net.sit(S.name, usableSkin(S.skin)); }, { kind: 'primary', id: 'sitBtn', disabled: n >= PF.MAX_PLAYERS })));
   }
   nodes.push(sc);
   if (host) {
@@ -597,7 +624,7 @@ function statusText() {
   const m = match();
   if (m.phase === 'aim') {
     const tl = m.teamScore ? ' (' + teamName(PF.teamOf(m, m.turn)).replace(' team', '') + ')' : '';
-    if (shooterIsMe()) return (isLocal() ? nameOf(m.turn) + tl + ', your flick! ' : 'Your flick! ') + 'Press your glowing pen, pull back, let go.';
+    if (shooterIsMe()) return (isLocal() ? nameOf(m.turn) + tl + ', your flick! ' : 'Your flick! ') + (PROF.p.flick === 'push' ? 'Press your glowing pen, push the way you want it to go, let go.' : 'Press your glowing pen, pull back, let go.');
     return nameOf(m.turn) + tl + ' is lining up a shot…';
   }
   if (m.phase === 'roll') return m.lastShot ? nameOf(m.lastShot.by) + ' flicked at ' + Math.round(m.lastShot.power * 100) + '% power!' : 'Flying…';
@@ -652,8 +679,42 @@ function stageOverlay() {
       h('p', { class: 'ov-k', text: 'Match over' }),
       h('h2', { class: 'ov-t', id: 'winner', text: twin !== null ? teamName(twin) + ' wins the match!' : nameOf(w) + (w === S.me && !isLocal() ? ' (you!)' : '') + ' is the desk champion' }),
       twin !== null ? h('p', { class: 'ov-s', text: 'Champions: ' + mates }) : null,
+      PROF.last && PROF.last.id === m.id ? xpCard(PROF.last) : null,
       scoreList(m), h('div', { class: 'ovbtns' }, buttons)));
   }
+}
+function levelBar(id) {
+  const lp = levelProgress(PROF.p.xp);
+  return h('div', { class: 'lvl', id: id },
+    h('span', { class: 'lvbadge', text: 'Lv ' + lp.level }),
+    h('span', { class: 'lvbar' }, h('span', { class: 'lvfill', style: 'width:' + (lp.need ? Math.round(lp.into / lp.need * 100) : 100) + '%' })),
+    h('span', { class: 'lvtxt', text: lp.need ? lp.toNext + ' XP to level ' + (lp.level + 1) : 'Max level' }));
+}
+function xpCard(r) {
+  return h('div', { class: 'xpcard', id: 'xpCard' },
+    h('p', { class: 'xptotal', text: '+' + r.total + ' XP' }),
+    h('ul', { class: 'xplines' }, r.lines.map(function (l) { return h('li', {}, h('span', { text: l[0] }), h('span', { text: '+' + l[1] })); })),
+    levelBar('xpLevel'),
+    r.unlocked.length ? h('p', { class: 'unlocked', text: '\ud83c\udf89 Unlocked: ' + r.unlocked.join(', ') }) : null);
+}
+function caseCard() {
+  const p = PROF.p, nx = nextUnlock();
+  return h('details', { class: 'card case', id: 'caseD' },
+    h('summary', { class: 'sumh' }, 'Your pencil case ', h('span', { class: 'lvbadge', text: 'Lv ' + myLevel() })),
+    levelBar('homeLevel'),
+    nx ? h('p', { class: 'hint', text: 'Next unlock: ' + nx.name + ' at level ' + nx.level + '. Earn XP in online matches: playing, winning rounds, knocking pens off and winning streaks.' }) : h('p', { class: 'hint', text: 'Everything is unlocked. Show off.' }),
+    h('div', { class: 'statgrid' },
+      [['Matches', p.matches], ['Wins', p.wins], ['Rounds won', p.roundsWon], ['Knock-offs', p.kos], ['Best streak', p.bestStreak], ['Self-flicks off', p.selfOuts]]
+        .map(function (x) { return h('div', { class: 'sg' }, h('strong', { text: String(x[1]) }), h('span', { text: x[0] })); })),
+    h('div', { class: 'field', id: 'deskPick' }, h('span', { class: 'lbl', text: 'Your desk' }),
+      h('div', { class: 'seg' }, DESKS.map(function (d) {
+        const ok = deskUnlocked(d.id), on = currentDesk().id === d.id;
+        return h('button', { type: 'button', class: 'segb' + (on ? ' on' : ''), disabled: !ok, 'data-v': d.id, 'aria-pressed': on ? 'true' : 'false',
+          onclick: function () { PROF.p.desk = d.id; saveProfile(); if (stage) stage.w = 0; render(); } }, d.name + (ok ? '' : ' \ud83d\udd12' + d.level));
+      }))),
+    seg('Flick control', 'flickPick', [['pull', 'Pull back (slingshot)'], ['push', 'Push forward']], p.flick, function (v) { PROF.p.flick = v; saveProfile(); render(); }),
+    h('p', { class: 'hint', text: 'Progress is saved in this browser on this device. No account needed.' }),
+    confirmBtn('reset', 'Reset progress', 'Confirm: erase my progress', function () { resetProfile(); S.skin = usableSkin(S.skin); store('skin', S.skin); }));
 }
 function scoreList(m) {
   if (m.teamScore) {
@@ -771,6 +832,7 @@ render = function () {
 function boot() {
   root = document.getElementById('app');
   const t = store('theme'); if (t) setTheme(t);
+  if (S.skin && !isUnlocked(S.skin)) S.skin = 'blue';
   hdrEl = h('header', { class: 'hdr', id: 'hdr' });
   connEl = h('div', { class: 'connwrap', id: 'conn', hidden: true });
   mainEl = h('main', { class: 'main', id: 'main' });

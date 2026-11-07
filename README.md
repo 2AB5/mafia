@@ -77,7 +77,23 @@ The last-bench classic, online for 2 to 5 friends. Everyone has a pen on the sam
 
 - **Rooms:** create a room and share the 4-letter code, the invite link or the QR code, just like Mafia. Everyone plays on their own phone.
 - **Controls:** press on your glowing pen, pull back like a slingshot, and let go. A faint ghost pen shows exactly where yours will stop if it hits nothing, and it turns red if you'd fly off the desk. Grab near the middle to shoot straight, or near an end to make the pen spin.
-- **Physics:** a full flick slides about 4 pen lengths and stops dead in about a second, because pens use sliding friction like a real desk. The desk grows with the number of players: 6×9 for a duel, 7×10.5 for 3, and 8×12 for 4–5. Pens near an edge are in danger, while the middle of the big desk is safe.
+- **Physics:**
+  - Pens are round capsules that slide with real desk friction. A full flick goes about 4 pen lengths and stops in about a second.
+  - Pushed lengthwise a pen grips, but pushed from the side a round pen rolls, so a broadside hit sends it much further than an end-on one. A hexagonal pencil never rolls.
+  - The desk grows with the number of players: 7×10.5 for a duel, 7.5×11.25 for 3, and 8×12 for 4–5. Pens start angled so the opening flick can't decide the round.
+- **Pens:** seven types, all balanced by bot duels so each one wins about half its matches. They differ in reach, grip (how much they roll), bounce and size.
+  - Blue ballpoint: the all-rounder
+  - Red ballpoint: longest flick, rolls easily
+  - Black gel: rubber grip
+  - Fat marker: short and controlled
+  - Pencil: never rolls
+  - Highlighter: ricochet king
+  - Fountain pen: steady, barely bounces
+- **Progress (no sign-in):**
+  - You earn XP in online matches: +20 for playing, +30 per round won, +15 per knock-off, +60 for a win, and a streak bonus.
+  - Levels unlock pens (Fat marker at 2, Pencil at 3, Highlighter at 4, Fountain pen at 6) and desk styles (Walnut at 3, Exam hall at 5, Birch at 7).
+  - Everything is saved in your browser on that device.
+- **Controls:** choose "pull back" (slingshot) or "push forward" in your pencil case.
 - **What everyone sees:** the shooter's aim arrow appears live on every screen, and the shot plays out on all phones at once. You can send reactions (😂 😱 🔥 👏 😤 💀) during play.
 - **Host options:** free-for-all or teams, first to 1, 2, 3 or 5 rounds, and a turn timer (off, 20, 30 or 45 seconds). Offline players' turns are skipped automatically, and the host can skip a turn or remove someone who left.
 - **One device:** 2 to 5 players can pass one phone around or share a laptop, with teams available for 3 or more.
@@ -92,5 +108,6 @@ The last-bench classic, online for 2 to 5 friends. Everyone has a pen on the sam
 | --- | --- |
 | `penfight/src/game.js` | Desk physics and match rules, tested in Node |
 | `penfight/src/net.js` | Rooms and the host-run game loop |
+| `penfight/src/progress.js` | XP, levels and unlocks (browser storage) |
 | `penfight/src/ui.js` | Desk renderer, flick controls and screens |
 | `penfight/index.html` | The built page (`node penfight/build.js`) |

@@ -69,12 +69,21 @@ function controlsPanel() {
       h('button', { type: 'button', class: 'bindkey' + (waiting ? ' wait' : ''), id: 'bind-' + a[0], 'aria-label': 'Change key for ' + a[1], onclick: function () { Input.capture = waiting ? null : a[0]; render(); } }, waiting ? 'Press a key… (Esc cancels)' : Input.keyName(Input.binds[a[0]]) + (['up', 'down', 'left', 'right'].indexOf(a[0]) !== -1 ? '  (or arrow)' : '')));
   });
   return h('div', { class: 'ctlpanel', id: 'ctlPanel' },
-    seg('Touch joystick sensitivity', 'sensPick', [['low', 'Low (smooth)'], ['medium', 'Medium'], ['high', 'High (quick)']], S.sens, function (v) { S.sens = v; store('sens', v); render(); }),
-    h('p', { class: 'hint', text: 'Low: drag further for full speed, movement eases in gently. High: small flicks move you fast.' }),
+    sensField(),
     h('span', { class: 'lbl', text: 'Keyboard: click an action, then press the key you want' }),
     h('div', { class: 'binds', id: 'binds' }, rows),
     h('div', { class: 'row' }, btn('Reset keys', function () { Input.resetBinds(); Input.capture = null; render(); }, { kind: 'ghost small', id: 'resetKeys' })),
     seg('Landing guide (an ✕ where the shuttle will come down)', 'guidePick', [[true, 'On'], [false, 'Off']], S.guide, function (v) { S.guide = v; store('guide', v ? '1' : '0'); render(); }));
+}
+function sensBucket(v) { return v >= 100 ? 'Instant (original)' : v > 70 ? 'Quick' : v > 30 ? 'Balanced' : 'Smooth'; }
+/* 0–100 slider; it updates live without a re-render so dragging it never gets interrupted */
+function sensField() {
+  const out = h('span', { class: 'sensval', id: 'sensVal', text: S.sens + ' · ' + sensBucket(S.sens) });
+  const range = h('input', { type: 'range', min: '0', max: '100', step: '1', id: 'sensRange', value: String(S.sens), 'aria-label': 'Joystick sensitivity' });
+  range.addEventListener('input', function () { S.sens = Number(range.value); store('sens', String(S.sens)); out.textContent = S.sens + ' · ' + sensBucket(S.sens); });
+  return h('div', { class: 'field', id: 'sensPick' }, h('div', { class: 'sensrow' }, h('span', { class: 'lbl', text: 'Touch joystick sensitivity' }), out), range,
+    h('div', { class: 'sensticks' }, h('span', { text: 'Smooth' }), h('span', { text: 'Balanced' }), h('span', { text: 'Quick' }), h('span', { text: 'Instant' })),
+    h('p', { class: 'hint', text: 'Lower = drag further for full speed and movement eases in. 100 = the original: instant and direct.' }));
 }
 function settingsCard() {
   return h('details', { class: 'card', id: 'setD' }, h('summary', { class: 'sumh', text: 'Settings & controls' }),
@@ -163,7 +172,7 @@ function scoreBar(m) {
   };
   const me = m.players.find(function (p) { return p.id === S.me; });
   return h('div', { class: 'scorebar', id: 'scorebar' }, side(me && me.side === 1 ? 1 : 0),
-    h('div', { class: 'sbmid' }, h('span', { text: 'to ' + m.cfg.target }), h('span', { class: 'rally', id: 'rallyNo', text: m.phase === 'rally' ? '' : '' })), side(me && me.side === 1 ? 0 : 1));
+    h('div', { class: 'sbmid' }, h('button', { type: 'button', class: 'gearbtn', id: 'gearBtn', 'aria-label': 'Controls and settings', onclick: function () { openCtl(true); } }, icon('gear', 18)), h('span', { text: 'to ' + m.cfg.target })), side(me && me.side === 1 ? 0 : 1));
 }
 function banner(m) {
   const me = m.players.find(function (p) { return p.id === S.me && !p.left; });
@@ -197,15 +206,22 @@ function gameScreen() {
   if (me && touchy()) tools.push(h('p', { class: 'runhint', text: 'Drag on the left side to run' }));
   if (me) tools.push(h('div', { class: 'energy', 'aria-label': 'Your energy' }, h('span', { class: 'elbl', text: 'Energy' }), h('span', { class: 'ebar' }, h('span', { class: 'efill hi', id: 'myEnergy' }))));
   if (!me) tools.push(h('p', { class: 'watching', id: 'watching', text: '👁 You’re watching. You can join when this game ends.' }));
-  const ctl = [h('button', { type: 'button', class: 'btn small ghost', id: 'ctlBtn', 'aria-expanded': OPEN.ctl ? 'true' : 'false', onclick: function () { OPEN.ctl = !OPEN.ctl; render(); } }, '⚙ Controls'), h('button', { type: 'button', class: 'btn small ghost', id: 'guideBtn', 'aria-pressed': S.guide ? 'true' : 'false', onclick: function () { S.guide = !S.guide; store('guide', S.guide ? '1' : '0'); render(); } }, 'Landing guide: ' + (S.guide ? 'on' : 'off'))];
+  const ctl = [h('button', { type: 'button', class: 'btn small ghost', id: 'ctlBtn', 'aria-expanded': OPEN.ctl ? 'true' : 'false', onclick: function () { openCtl(!OPEN.ctl); } }, '⚙ Controls'), h('button', { type: 'button', class: 'btn small ghost', id: 'guideBtn', 'aria-pressed': S.guide ? 'true' : 'false', onclick: function () { S.guide = !S.guide; store('guide', S.guide ? '1' : '0'); render(); } }, 'Landing guide: ' + (S.guide ? 'on' : 'off'))];
+  if (me) {
+    const used = (m.breaks && m.breaks[S.me]) || 0, left = BD.BREAKS - used;
+    const ok = !m.paused && (m.phase === 'point' || m.phase === 'serve') && left > 0;
+    ctl.unshift(h('button', { type: 'button', class: 'btn small', id: 'breakBtn', disabled: !ok, title: 'Pause between points', onclick: function () { Net.pause(); } }, '🥤 Break' + (left < BD.BREAKS ? ' (' + left + ' left)' : '')));
+  }
   if (S.isHost && !S.local) ctl.push(confirmBtn('end', 'End game', 'Confirm: end game', hostEndGame, 'small'));
   if (S.local) ctl.push(confirmBtn('quit', 'Quit practice', 'Confirm: quit', function () { hostClose(); }, 'small'));
   if (!S.isHost) ctl.push(confirmBtn('leave', 'Leave', 'Confirm: leave', function () { Net.leave(); }, 'small'));
   tools.push(h('div', { class: 'row ctl' }, ctl));
   nodes.push(h('div', { class: 'below' }, tools));
-  if (OPEN.ctl) nodes.push(card(h('div', { class: 'cardhead' }, h('h3', { text: 'Controls' }), btn('Done', function () { OPEN.ctl = false; Input.capture = null; render(); }, { kind: 'small', id: 'ctlDone' })), controlsPanel()));
+  if (OPEN.ctl) nodes.push(h('div', { class: 'sheet', id: 'ctlSheet', role: 'dialog', 'aria-label': 'Controls', onclick: function (e) { if (e.target === e.currentTarget) openCtl(false); } },
+    h('div', { class: 'sheetbox' }, h('div', { class: 'cardhead' }, h('h3', { text: S.local ? 'Controls · game paused' : m.paused ? 'Controls · on a break' : 'Controls (tip: call a 🥤 break between points first)' }), btn('Done', function () { openCtl(false); }, { kind: 'primary small', id: 'ctlDone' })), controlsPanel())));
   return nodes;
 }
+function openCtl(on) { OPEN.ctl = !!on; Input.capture = null; S.paused = !!on; render(); }
 function overScreen(m) {
   const sum = BD.summary(m), me = m.players.find(function (p) { return p.id === S.me; });
   const w = m.winner;

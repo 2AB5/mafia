@@ -133,7 +133,7 @@ const S = {
   confirm: null,
   sound: store('sound') !== '0',
   guide: store('guide') !== '0',
-  sens: ['low', 'medium', 'high'].indexOf(store('sens')) !== -1 ? store('sens') : 'medium',
+  sens: /^\d{1,3}$/.test(store('sens') || '') ? Math.min(100, Number(store('sens'))) : 90,     // older word settings move to the new default
   wantSeat: false, watchOnly: false
 };
 let render = function () {};

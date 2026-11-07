@@ -285,5 +285,26 @@ test('forehand on your right, backhand on your left (and for the far side, mirro
   rallyFrom(m, 'a', 0, 5.5, 1.8); m.shuttle.x = -0.5; BD.swing(m, 'a', 'clear', [0, 0], () => 0.5, []); const back = BD.fly(m.shuttle).y;
   assert.ok(back > fore + 0.3, 'backhand clear shorter (' + back.toFixed(2) + ' vs ' + fore.toFixed(2) + ')');
 });
+test('hydration break: only between points, freezes everything, 2 per player, resumes with a countdown', () => {
+  const m = BD.newMatch({ players: two(), rng: seeded(50) });
+  rallyFrom(m, 'a', 0, 4, 1.5);
+  assert.strictEqual(BD.callBreak(m, 'a'), false, 'not mid-rally');
+  m.phase = 'point'; m.phaseT = 0;
+  assert.ok(BD.callBreak(m, 'a'));
+  const t0 = m.t, ph = m.phase, pt = m.phaseT;
+  for (let i = 0; i < 600; i++) BD.step(m, 1 / 60);
+  assert.ok(m.paused && m.t === t0 && m.phase === ph && m.phaseT === pt, 'the game clock stops during the break');
+  const a = BD.playerOf(m, 'a'), x = a.x; BD.moveTo(m, 'a', x + 1, a.y, 1 / 60); assert.strictEqual(a.x, x, 'nobody moves');
+  assert.ok(BD.resumeBreak(m, 'b'), 'anyone playing can resume');
+  for (let i = 0; i < 60 * 2.5; i++) BD.step(m, 1 / 60);
+  assert.ok(m.paused, 'still counting down');
+  for (let i = 0; i < 60; i++) BD.step(m, 1 / 60);
+  assert.strictEqual(m.paused, null, 'play resumes after 3 s');
+  m.phase = 'serve'; assert.ok(BD.callBreak(m, 'a'), 'a second break');
+  for (let i = 0; i < 60 * 64; i++) BD.step(m, 1 / 60);
+  assert.strictEqual(m.paused, null, 'a break ends by itself after a minute');
+  m.phase = 'serve'; assert.strictEqual(BD.callBreak(m, 'a'), false, 'only 2 per player');
+  assert.ok(BD.callBreak(m, 'b'), 'the other player still has theirs');
+});
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

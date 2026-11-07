@@ -41,10 +41,10 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     check((await pg.textContent('#bind-drop')).trim() === 'M' && (await pg.textContent('#bind-smash')).trim() === 'K', 'binding a taken key swaps the two');
     await pg.click('#bind-smash'); await pg.keyboard.press('KeyM');
     await pg.click('#bind-drop'); await pg.keyboard.press('KeyK');
-    await pg.click('#sensPick [data-v="low"]');
+    await pg.fill('#sensRange', '40');
     await pg.screenshot({ path: path.join(SHOTS, '09-settings.png'), fullPage: true });
     await pg.reload();
-    check(await ev(pg, "window.__bd.Input.binds.smash === 'KeyM' && window.__bd.S.sens === 'low'"), 'key binding and sensitivity are remembered');
+    check(await ev(pg, "window.__bd.Input.binds.smash === 'KeyM' && window.__bd.S.sens === 40"), 'key binding and sensitivity are remembered');
     await pg.fill('#nameIn', 'Ab'); await pg.click('#pracFmt [data-v="1v1"]'); await pg.click('#pracLvl [data-v="easy"]'); await pg.click('#practiceBtn');
     await waitFor(() => ev(pg, '!!window.__bd.H.match'), 'practice starts');
     const me = await ev(pg, 'window.__bd.S.me');
@@ -90,6 +90,30 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     const d1 = Math.hypot(P1[0] - P0[0], P1[1] - P0[1]), d2 = Math.hypot(P2[0] - P1[0], P2[1] - P1[1]) / (400 / 60);
     check(d2 > 0.03, 'dragging the joystick moves the player');
     check(d1 < d2 * 1.2, 'movement eases in rather than jumping to full speed');
+    // settings mid-game: the gear opens an overlay, practice pauses, changes apply
+    await pg.click('#gearBtn');
+    await waitFor(() => pg.$('#ctlSheet'), 'settings sheet opens in game', 3000);
+    const t1 = await ev(pg, 'window.__bd.H.match.t'); await sleep(400); const t2 = await ev(pg, 'window.__bd.H.match.t');
+    check(t1 === t2, 'practice pauses while settings are open');
+    await pg.fill('#sensRange', '100');
+    check(await ev(pg, 'window.__bd.S.sens === 100 && window.__bd.Input.sens().ease === Infinity'), '100 is the original instant response');
+    await pg.click('#bind-clear'); await pg.keyboard.press('KeyU');
+    check(await ev(pg, "window.__bd.Input.binds.clear === 'KeyU'"), 'keys can be changed mid-game');
+    await pg.screenshot({ path: path.join(SHOTS, '10-settings-ingame.png') });
+    await pg.click('#ctlDone');
+    await sleep(300); check((await ev(pg, 'window.__bd.H.match.t')) > t2, 'game resumes after Done');
+    await pg.evaluate(() => { window.__bd.Input.resetBinds(); });
+    // a hydration break between points: freezes the game, then Resume counts down
+    await pg.evaluate(() => { const m = window.__bd.H.match; m.phase = 'point'; m.phaseT = 0; m.paused = null; });
+    await sleep(200);
+    await pg.click('#breakBtn');
+    await waitFor(() => pg.$('#breakOv'), 'break overlay', 3000);
+    const b1 = await ev(pg, 'window.__bd.H.match.t'); await sleep(500);
+    check((await ev(pg, 'window.__bd.H.match.t')) === b1, 'the break stops the game clock');
+    await pg.screenshot({ path: path.join(SHOTS, '11-break.png') });
+    await pg.click('#resumeBtn');
+    await waitFor(async () => /Back in/.test(await pg.textContent('#breakOv')), 'countdown', 2000);
+    await waitFor(async () => !(await pg.$('#breakOv')), 'play resumes', 6000);
     // now let the autopilot play a quick game to 5 and check the end screen
     await pg.evaluate(() => { window.__bd.H.match.cfg.target = 5; window.__bdAuto = 'hard'; });
     await waitFor(async () => (await M(pg)).phase === 'over', 'practice game ends', 180000);
@@ -139,6 +163,19 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
         await pages[1].screenshot({ path: path.join(SHOTS, '06-client-rally' + (opts.landscape ? '-landscape' : '') + '.png') });
         await spec.screenshot({ path: path.join(SHOTS, '07-spectator.png') });
       }
+      if (opts.reload && !opts._broke && m.phase === 'point' && m.score[0] + m.score[1] >= 1) {
+        // the other player calls a break: everyone freezes, then they resume
+        opts._broke = true;
+        await pages[1].click('#breakBtn').catch(() => {});
+        const got = await waitFor(() => ev(host, '!!window.__bd.H.match.paused'), 'host sees the break', 3000).catch(() => false);
+        if (got) {
+          await waitFor(() => host.$('#breakOv'), 'break shown on host', 3000);
+          await waitFor(() => spec.$('#breakOv'), 'break shown to viewers', 3000);
+          await pages[1].click('#resumeBtn');
+          await waitFor(() => ev(host, '!window.__bd.H.match.paused'), 'break ends', 8000);
+          console.log('    a remote player called a hydration break and resumed it');
+        } else opts._broke = false;
+      }
       if (opts.reload && !reloaded && m.score[0] + m.score[1] >= 2) {
         reloaded = true;
         await pages[1].reload();
@@ -172,6 +209,7 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
   }
   try {
     if (process.env.CTL_ONLY) { await controls(); throw 'done'; }
+    if (process.env.QUICK) { await controls(); await online(2, 0, { reload: true, shots: true }); throw 'done'; }
     await controls();
     await online(2, 0, { reload: true, shots: true });
     await online(2, 2, { landscape: true, shots: true });

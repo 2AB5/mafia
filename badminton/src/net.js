@@ -154,6 +154,8 @@ function hostHandle(rec, d) {
   if (!rec.pid) return;
   if (d.t === 'side') { hostSetSide(rec.pid, d.side); return; }
   if (d.t === 'mv') { hostMove(rec.pid, Number(d.x), Number(d.y)); return; }
+  if (d.t === 'brk') { if (H.match && BD.callBreak(H.match, rec.pid)) hostChanged(); return; }
+  if (d.t === 'res') { if (H.match && BD.resumeBreak(H.match, rec.pid)) hostChanged(); return; }
   if (d.t === 'hit') { hostMove(rec.pid, Number(d.x), Number(d.y)); hostHit(rec.pid, d.b, d.a, Number(d.vt)); }
 }
 function sideCounts() { const c = [0, 0]; H.roster.forEach(function (r) { c[r.side]++; }); return c; }
@@ -233,7 +235,7 @@ function hostHit(pid, button, aim, vt) {
 function hostTick() {
   const m = H.match;
   const now = performance.now();
-  if (!m) { H.last = now; return; }
+  if (!m || (H.local && S.paused)) { H.last = now; return; }
   H.acc += Math.min(250, now - H.last); H.last = now;
   let steps = 0;
   while (H.acc >= BD.DT * 1000 && steps < 40) {
@@ -260,7 +262,7 @@ function hostTick() {
     if (!H.local) hostEach(function (rec) { hostSend(rec, fr); });
     View.frame(fr, true);
   }
-  const key = m.phase + ':' + m.score.join('-') + ':' + m.resetNo;
+  const key = m.phase + ':' + m.score.join('-') + ':' + m.resetNo + ':' + (m.paused ? 'p' + (m.paused.count === null ? '' : 'c') : '');
   if (key !== H.lastPhase) { H.lastPhase = key; hostChanged(); }
 }
 function r3(v) { return Math.round(v * 1000) / 1000; }
@@ -270,6 +272,7 @@ function hostFrame(m) {
   const s = m.shuttle || { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
   return {
     t: 'f', ts: r3(m.t), ph: m.phase, r: m.resetNo, sv: m.server, lh: m.lastHitTeam, rh: m.rallyHits,
+    pz: m.paused ? [m.paused.by, Math.max(0, Math.round(m.paused.left)), m.paused.count === null ? -1 : Math.ceil(m.paused.count)] : null,
     s: [r3(s.x), r3(s.y), r3(s.z), r3(s.vx), r3(s.vy), r3(s.vz), s.held ? 1 : 0, m.landed ? 1 : 0],
     p: m.players.map(function (p) { return [r3(p.x), r3(p.y), Math.round(p.energy), Math.round(p.swing * 100), KIND_CODE.indexOf(p.swingKind || ''), p.hand === 'back' ? 1 : 0]; }),
     e: evs
@@ -466,6 +469,8 @@ const Net = {
     if (S.isHost) { hostHit(H.myId, button, aim, View.renderTs()); return; }
     clientSend({ t: 'hit', b: button, a: [r3(aim[0]), r3(aim[1])], x: r3(me.x), y: r3(me.y), vt: r3(View.renderTs()) });
   },
+  pause: function () { if (S.isHost) { if (H.match && BD.callBreak(H.match, H.myId)) hostChanged(); } else clientSend({ t: 'brk' }); },
+  resume: function () { if (S.isHost) { if (H.match && BD.resumeBreak(H.match, H.myId)) hostChanged(); } else clientSend({ t: 'res' }); },
   react: function (e) { if (S.isHost) hostReact(S.name || 'Host', e); else clientSend({ t: 'react', e: e }); },
   side: function (s) { if (S.isHost) hostSetSide(H.myId, s); else clientSend({ t: 'side', side: s }); },
   watch: function () { S.wantSeat = false; S.watchOnly = true; if (S.room) store('watch.' + S.room, '1'); if (!S.isHost) clientSend({ t: 'leave' }); },

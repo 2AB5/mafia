@@ -300,6 +300,25 @@ html.ingame, html.ingame body { overflow-x: hidden; }
 .stickzone, .controls, .shot { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .runhint { margin: 0; font-size: 12px; color: var(--muted); font-weight: 700; }
 
+/* in-game settings sheet */
+.gearbtn { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; margin-bottom: 2px; }
+.sbmid { gap: 2px; }
+.sheet { position: fixed; inset: 0; z-index: 70; background: rgba(8, 10, 18, .6); display: grid; place-items: center; padding: 14px; overflow-y: auto; touch-action: pan-y; }
+.sheetbox { width: min(560px, 100%); max-height: calc(100dvh - 28px); overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 24px 50px -20px rgba(0,0,0,.7); }
+.sheet, .sheet * { -webkit-user-select: none; user-select: none; }
+.sensrow { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.sensval { font-family: var(--f-mono); font-weight: 700; font-size: 13px; color: var(--accent); }
+#sensRange { width: 100%; accent-color: var(--accent); height: 28px; touch-action: pan-x; }
+.sensticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-weight: 700; }
+
+/* hydration break */
+.breakov { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; background: rgba(8, 12, 22, .55); animation: fade .2s ease; }
+.breakcard { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 22px; border-radius: 18px; background: var(--surface); color: var(--ink); box-shadow: 0 20px 40px -18px rgba(0,0,0,.7); text-align: center; min-width: 220px; }
+.breakcard .bicon { font-size: 36px; line-height: 1; }
+.breakcard b { font-size: 18px; }
+.breakcard span { color: var(--muted); font-size: 14px; }
+.breakov, .breakov * { touch-action: manipulation !important; }
+
 </style>
 </head>
 <body>
@@ -2628,6 +2647,7 @@ const BD = (function () {
   const MAX_SPEED = 5.0;
   const GRACE = 0.16;                          // a landing is final only after this long: covers network delay on late saves
   const POINT_PAUSE = 1.7, SERVE_WAIT = 8;
+  const BREAKS = 2, BREAK_SECS = 60, RESUME_SECS = 3;               // hydration breaks between points
   const LEVELS = {
     // easy bots also take a moment to get going (accel, m/s²) and misjudge the flight a little (miss, metres)
     easy: { react: 0.48, speed: 0.64, accel: 10, miss: 0.3, noise: 0.6, smash: 0.25, smart: 0.2, eager: 0.25, err: 0.13, fool: 0.9 },
@@ -2721,6 +2741,7 @@ const BD = (function () {
       stats: {}, events: [], log: []
     };
     m.players.forEach(function (p) { m.stats[p.id] = { hits: 0, smashes: 0, winners: 0, errors: 0, fastest: 0, aces: 0 }; });
+    m.breaks = {}; m.paused = null;
     startServe(m, rng);
     return m;
   }
@@ -2769,7 +2790,7 @@ const BD = (function () {
   function moveTo(m, id, x, y, dt) {
     const p = playerOf(m, id);
     if (!p || p.left || !isFinite(x) || !isFinite(y)) return;
-    if (m.phase === 'serve' && p.id === m.server) return;        // the server holds still until they serve
+    if (m.paused || (m.phase === 'serve' && p.id === m.server)) return;        // frozen in a break; the server holds still until they serve
     dt = Math.max(dt || DT, 1e-3);
     const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy), cap = speedCap(m, p) * 1.25 * dt + 0.02;
     const k = d > cap ? cap / d : 1;
@@ -2879,7 +2900,7 @@ const BD = (function () {
   function swing(m, id, button, aim, rng, past) {
     rng = rng || Math.random;
     const p = playerOf(m, id);
-    if (!p || p.left || (m.phase !== 'rally' && m.phase !== 'serve')) return null;
+    if (!p || p.left || m.paused || (m.phase !== 'rally' && m.phase !== 'serve')) return null;
     if (p.swing > 0.18) return null;                               // still finishing the last swing
     p.swing = 0.32;
     if (m.phase === 'serve') {
@@ -2988,9 +3009,38 @@ const BD = (function () {
     if (winSide !== m.serveSide) { m.serveSide = winSide; m.nextServer[winSide]++; }
     m.phase = 'point'; m.phaseT = 0;
   }
+  /* hydration break: only between points; the clock stops for everyone until someone resumes (or time's up) */
+  function canBreak(m, id) {
+    const p = playerOf(m, id);
+    return !!p && !p.left && !m.paused && (m.phase === 'point' || m.phase === 'serve') && (m.breaks[id] || 0) < BREAKS;
+  }
+  function callBreak(m, id) {
+    if (!m.breaks) m.breaks = {};
+    if (!canBreak(m, id)) return false;
+    m.breaks[id] = (m.breaks[id] || 0) + 1;
+    m.paused = { by: id, left: BREAK_SECS, count: null };
+    m.players.forEach(function (p) { p.vx = 0; p.vy = 0; });
+    ev(m, { k: 'break', by: id });
+    addLog(m, nameOf(m, id) + ' called a hydration break.');
+    return true;
+  }
+  function resumeBreak(m, id) {
+    const p = playerOf(m, id);
+    if (!m.paused || m.paused.count !== null || !p || p.left) return false;
+    m.paused.count = RESUME_SECS;
+    ev(m, { k: 'resume', by: id });
+    return true;
+  }
   function step(m, dt, rng) {
     rng = rng || Math.random;
     if (m.phase === 'over') return;
+    if (m.paused) {
+      const z = m.paused;
+      z.left -= dt;
+      if (z.count === null && z.left <= 0) z.count = RESUME_SECS;
+      if (z.count !== null) { z.count -= dt; if (z.count <= 0) { m.paused = null; ev(m, { k: 'play' }); } }
+      return;
+    }
     m.t += dt; m.phaseT += dt;
     tire(m, dt);
     if (m.phase === 'point') { if (m.phaseT >= POINT_PAUSE) startServe(m, rng); return; }
@@ -3140,7 +3190,7 @@ const BD = (function () {
   }
   /* apply a bot's movement for one step (bots are simulated on the host) */
   function botMove(m, p, think, dt) {
-    if (m.phase === 'serve' && p.id === m.server) return;
+    if (m.paused || (m.phase === 'serve' && p.id === m.server)) return;
     const L = LEVELS[p.bot] || LEVELS.normal;
     if (L.accel) {
       // easy bots can't start or stop instantly
@@ -3171,7 +3221,7 @@ const BD = (function () {
   }
 
   return {
-    C: C, ZONES: ZONES, preview: preview, G: G, K: K, DT: DT, REACH: REACH, MAX_SPEED: MAX_SPEED, GRACE: GRACE, POINT_PAUSE: POINT_PAUSE, SERVE_WAIT: SERVE_WAIT, SMASH_Z: SMASH_Z, LEVELS: LEVELS, BOT_NAMES: BOT_NAMES, NAMES: NAMES,
+    C: C, ZONES: ZONES, preview: preview, BREAKS: BREAKS, BREAK_SECS: BREAK_SECS, canBreak: canBreak, callBreak: callBreak, resumeBreak: resumeBreak, G: G, K: K, DT: DT, REACH: REACH, MAX_SPEED: MAX_SPEED, GRACE: GRACE, POINT_PAUSE: POINT_PAUSE, SERVE_WAIT: SERVE_WAIT, SMASH_Z: SMASH_Z, LEVELS: LEVELS, BOT_NAMES: BOT_NAMES, NAMES: NAMES,
     defaultConfig: defaultConfig, normalizeConfig: normalizeConfig, capFor: capFor, modeFor: modeFor, halfW: halfW, sgn: sgn,
     stepShuttle: stepShuttle, fly: fly, launch: launch, speedFor: speedFor, angleFor: angleFor,
     newMatch: newMatch, playerOf: playerOf, nameOf: nameOf, teamOf: teamOf, solo: solo, startServe: startServe,
@@ -3320,7 +3370,7 @@ const S = {
   confirm: null,
   sound: store('sound') !== '0',
   guide: store('guide') !== '0',
-  sens: ['low', 'medium', 'high'].indexOf(store('sens')) !== -1 ? store('sens') : 'medium',
+  sens: /^\d{1,3}$/.test(store('sens') || '') ? Math.min(100, Number(store('sens'))) : 90,     // older word settings move to the new default
   wantSeat: false, watchOnly: false
 };
 let render = function () {};
@@ -3484,6 +3534,8 @@ function hostHandle(rec, d) {
   if (!rec.pid) return;
   if (d.t === 'side') { hostSetSide(rec.pid, d.side); return; }
   if (d.t === 'mv') { hostMove(rec.pid, Number(d.x), Number(d.y)); return; }
+  if (d.t === 'brk') { if (H.match && BD.callBreak(H.match, rec.pid)) hostChanged(); return; }
+  if (d.t === 'res') { if (H.match && BD.resumeBreak(H.match, rec.pid)) hostChanged(); return; }
   if (d.t === 'hit') { hostMove(rec.pid, Number(d.x), Number(d.y)); hostHit(rec.pid, d.b, d.a, Number(d.vt)); }
 }
 function sideCounts() { const c = [0, 0]; H.roster.forEach(function (r) { c[r.side]++; }); return c; }
@@ -3563,7 +3615,7 @@ function hostHit(pid, button, aim, vt) {
 function hostTick() {
   const m = H.match;
   const now = performance.now();
-  if (!m) { H.last = now; return; }
+  if (!m || (H.local && S.paused)) { H.last = now; return; }
   H.acc += Math.min(250, now - H.last); H.last = now;
   let steps = 0;
   while (H.acc >= BD.DT * 1000 && steps < 40) {
@@ -3590,7 +3642,7 @@ function hostTick() {
     if (!H.local) hostEach(function (rec) { hostSend(rec, fr); });
     View.frame(fr, true);
   }
-  const key = m.phase + ':' + m.score.join('-') + ':' + m.resetNo;
+  const key = m.phase + ':' + m.score.join('-') + ':' + m.resetNo + ':' + (m.paused ? 'p' + (m.paused.count === null ? '' : 'c') : '');
   if (key !== H.lastPhase) { H.lastPhase = key; hostChanged(); }
 }
 function r3(v) { return Math.round(v * 1000) / 1000; }
@@ -3600,6 +3652,7 @@ function hostFrame(m) {
   const s = m.shuttle || { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
   return {
     t: 'f', ts: r3(m.t), ph: m.phase, r: m.resetNo, sv: m.server, lh: m.lastHitTeam, rh: m.rallyHits,
+    pz: m.paused ? [m.paused.by, Math.max(0, Math.round(m.paused.left)), m.paused.count === null ? -1 : Math.ceil(m.paused.count)] : null,
     s: [r3(s.x), r3(s.y), r3(s.z), r3(s.vx), r3(s.vy), r3(s.vz), s.held ? 1 : 0, m.landed ? 1 : 0],
     p: m.players.map(function (p) { return [r3(p.x), r3(p.y), Math.round(p.energy), Math.round(p.swing * 100), KIND_CODE.indexOf(p.swingKind || ''), p.hand === 'back' ? 1 : 0]; }),
     e: evs
@@ -3796,6 +3849,8 @@ const Net = {
     if (S.isHost) { hostHit(H.myId, button, aim, View.renderTs()); return; }
     clientSend({ t: 'hit', b: button, a: [r3(aim[0]), r3(aim[1])], x: r3(me.x), y: r3(me.y), vt: r3(View.renderTs()) });
   },
+  pause: function () { if (S.isHost) { if (H.match && BD.callBreak(H.match, H.myId)) hostChanged(); } else clientSend({ t: 'brk' }); },
+  resume: function () { if (S.isHost) { if (H.match && BD.resumeBreak(H.match, H.myId)) hostChanged(); } else clientSend({ t: 'res' }); },
   react: function (e) { if (S.isHost) hostReact(S.name || 'Host', e); else clientSend({ t: 'react', e: e }); },
   side: function (s) { if (S.isHost) hostSetSide(H.myId, s); else clientSend({ t: 'side', side: s }); },
   watch: function () { S.wantSeat = false; S.watchOnly = true; if (S.room) store('watch.' + S.room, '1'); if (!S.isHost) clientSend({ t: 'leave' }); },
@@ -3830,6 +3885,8 @@ const View = (function () {
     if (V.frames.length > 40) V.frames.splice(0, V.frames.length - 40);
     if (V.m) {
       V.m.phase = fr.ph; V.m.server = fr.sv; V.m.lastHitTeam = fr.lh;
+      const pz = fr.pz ? fr.pz.join(':') : '';
+      if (pz !== V.pzKey) { V.pzKey = pz; V.pz = fr.pz; Breaks.update(); }
       if (fr.r !== V.rn) {
         V.rn = fr.r;
         // new serve: everyone is placed by the host
@@ -3878,7 +3935,7 @@ const View = (function () {
   V.tickMe = function (dt) {
     if (S.isHost || !V.m || !V.me) return;
     const p = V.m.players.find(function (q) { return q.id === S.me; }); if (!p) return;
-    if (V.m.phase === 'over') return;
+    if (V.m.phase === 'over' || V.pz) return;
     if (V.m.phase === 'serve' && V.m.server === p.id) return;
     const last = V.frames.length ? V.frames[V.frames.length - 1].f : null;
     const i = V.m.players.indexOf(p);
@@ -3917,6 +3974,8 @@ const View = (function () {
       }
       V.land = null; V.trail = [];
     } else if (e.k === 'whiff') { if (mine) { SFX.whiff(); const at = pos(); if (at) pop('Missed!', at, '#bbbbbb'); } }
+    else if (e.k === 'break') { SFX.serve(); }
+    else if (e.k === 'play') { SFX.serve(); }
     else if (e.k === 'net') { SFX.net(); pop('NET', [0, 0], '#ff7a6e'); }
     else if (e.k === 'point') {
       const myTeam = p ? null : null; void myTeam;
@@ -3951,22 +4010,26 @@ const Input = (function () {
   };
   function down(action) { const k = I.keys; return !!(k[I.binds[action]] || (ARROWS[action] && k[ARROWS[action]])); }
   /* touch sensitivity: how far you drag for full speed, and how quickly movement follows your thumb */
-  const SENS = { low: { r: 72, ease: 7, curve: 1.6 }, medium: { r: 54, ease: 11, curve: 1.35 }, high: { r: 40, ease: 16, curve: 1.15 } };
-  I.sens = function () { return SENS[S.sens] || SENS.medium; };
+  // 0 = smoothest … 100 = the original: instant, linear, short drag
+  I.sens = function () {
+    const v = Math.max(0, Math.min(100, Number(S.sens))), t = v / 100;
+    return { r: Math.round(72 - 20 * t), ease: v >= 100 ? Infinity : 6 + t * t * 34, curve: 1.5 - 0.5 * t, dead: 0.14 - 0.06 * t };
+  };
   function raw() {
     const kx = (down('right') ? 1 : 0) - (down('left') ? 1 : 0), ky = (down('down') ? 1 : 0) - (down('up') ? 1 : 0);
     if (kx || ky) { const d = Math.hypot(kx, ky); return [kx / d, ky / d, true]; }
     // joystick: dead zone near the centre, then a gentle curve for fine control
-    const m = Math.min(1, Math.hypot(I.jx, I.jy));
-    if (m < 0.12) return [0, 0, false];
-    const f = Math.pow((m - 0.12) / 0.88, I.sens().curve) / m;
+    const m = Math.min(1, Math.hypot(I.jx, I.jy)), sv = I.sens();
+    if (m < sv.dead) return [0, 0, false];
+    const f = Math.pow((m - sv.dead) / (1 - sv.dead), sv.curve) / m;
     return [I.jx * f, I.jy * f, false];
   }
   function vec(dt) {
     const r = raw();
     // ease toward the input so starts and stops are smooth instead of jerky
     const letGo = !r[0] && !r[1];
-    const k = Math.min(1, (dt || 0.016) * (r[2] ? 14 : I.sens().ease) * (letGo ? 3 : 1));     // stopping is quicker than starting
+    const ease = r[2] ? Math.max(14, I.sens().ease) : I.sens().ease;
+    const k = ease === Infinity ? 1 : Math.min(1, (dt || 0.016) * ease * (letGo ? 3 : 1));     // stopping is quicker than starting
     I.sv[0] += (r[0] - I.sv[0]) * k; I.sv[1] += (r[1] - I.sv[1]) * k;
     if (Math.abs(I.sv[0]) < 0.01 && Math.abs(I.sv[1]) < 0.01 && !r[0] && !r[1]) I.sv = [0, 0];
     return I.sv;
@@ -4301,6 +4364,30 @@ const Controls = (function () {
   return { ensure: ensure, update: update };
 })();
 
+/* ===== Breaks: the hydration-break overlay on the court, updated from frames without a full re-render ===== */
+const Breaks = (function () {
+  function update() {
+    const wrap = document.getElementById('courtWrap'); if (!wrap) return;
+    let el = document.getElementById('breakOv');
+    const pz = View.pz;
+    if (!pz) { if (el) el.remove(); return; }
+    const m = View.m; if (!m) return;
+    const who = m.players.find(function (p) { return p.id === pz[0]; });
+    const playing = m.players.some(function (p) { return p.id === S.me && !p.left; });
+    if (!el) { el = h('div', { class: 'breakov', id: 'breakOv' }); wrap.appendChild(el); }
+    clear(el);
+    const counting = pz[2] >= 0;
+    add(el, h('div', { class: 'breakcard' },
+      h('div', { class: 'bicon', text: '🥤' }),
+      h('b', { text: counting ? 'Back in ' + Math.max(1, pz[2]) + '…' : 'Hydration break' }),
+      h('span', { text: (who ? who.name : 'Someone') + ' called a break' + (counting ? '' : ' · ' + Math.floor(pz[1] / 60) + ':' + String(pz[1] % 60).padStart(2, '0') + ' left') }),
+      !counting && playing ? h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'btn small ghost', id: 'breakCtl', onclick: function () { openCtl(true); } }, '⚙ Controls'),
+        h('button', { type: 'button', class: 'btn small primary', id: 'resumeBtn', onclick: function () { Net.resume(); } }, 'Resume')) : null));
+  }
+  return { update: update };
+})();
+
 /* ===== ui: screens. The court canvas and the controls are persistent; the rest re-renders from state. ===== */
 let root, hdrEl, connEl, mainEl, toastEl;
 const SIDES = [{ name: 'Blue', color: '#3f7bff' }, { name: 'Red', color: '#ff5c72' }];
@@ -4372,12 +4459,21 @@ function controlsPanel() {
       h('button', { type: 'button', class: 'bindkey' + (waiting ? ' wait' : ''), id: 'bind-' + a[0], 'aria-label': 'Change key for ' + a[1], onclick: function () { Input.capture = waiting ? null : a[0]; render(); } }, waiting ? 'Press a key… (Esc cancels)' : Input.keyName(Input.binds[a[0]]) + (['up', 'down', 'left', 'right'].indexOf(a[0]) !== -1 ? '  (or arrow)' : '')));
   });
   return h('div', { class: 'ctlpanel', id: 'ctlPanel' },
-    seg('Touch joystick sensitivity', 'sensPick', [['low', 'Low (smooth)'], ['medium', 'Medium'], ['high', 'High (quick)']], S.sens, function (v) { S.sens = v; store('sens', v); render(); }),
-    h('p', { class: 'hint', text: 'Low: drag further for full speed, movement eases in gently. High: small flicks move you fast.' }),
+    sensField(),
     h('span', { class: 'lbl', text: 'Keyboard: click an action, then press the key you want' }),
     h('div', { class: 'binds', id: 'binds' }, rows),
     h('div', { class: 'row' }, btn('Reset keys', function () { Input.resetBinds(); Input.capture = null; render(); }, { kind: 'ghost small', id: 'resetKeys' })),
     seg('Landing guide (an ✕ where the shuttle will come down)', 'guidePick', [[true, 'On'], [false, 'Off']], S.guide, function (v) { S.guide = v; store('guide', v ? '1' : '0'); render(); }));
+}
+function sensBucket(v) { return v >= 100 ? 'Instant (original)' : v > 70 ? 'Quick' : v > 30 ? 'Balanced' : 'Smooth'; }
+/* 0–100 slider; it updates live without a re-render so dragging it never gets interrupted */
+function sensField() {
+  const out = h('span', { class: 'sensval', id: 'sensVal', text: S.sens + ' · ' + sensBucket(S.sens) });
+  const range = h('input', { type: 'range', min: '0', max: '100', step: '1', id: 'sensRange', value: String(S.sens), 'aria-label': 'Joystick sensitivity' });
+  range.addEventListener('input', function () { S.sens = Number(range.value); store('sens', String(S.sens)); out.textContent = S.sens + ' · ' + sensBucket(S.sens); });
+  return h('div', { class: 'field', id: 'sensPick' }, h('div', { class: 'sensrow' }, h('span', { class: 'lbl', text: 'Touch joystick sensitivity' }), out), range,
+    h('div', { class: 'sensticks' }, h('span', { text: 'Smooth' }), h('span', { text: 'Balanced' }), h('span', { text: 'Quick' }), h('span', { text: 'Instant' })),
+    h('p', { class: 'hint', text: 'Lower = drag further for full speed and movement eases in. 100 = the original: instant and direct.' }));
 }
 function settingsCard() {
   return h('details', { class: 'card', id: 'setD' }, h('summary', { class: 'sumh', text: 'Settings & controls' }),
@@ -4466,7 +4562,7 @@ function scoreBar(m) {
   };
   const me = m.players.find(function (p) { return p.id === S.me; });
   return h('div', { class: 'scorebar', id: 'scorebar' }, side(me && me.side === 1 ? 1 : 0),
-    h('div', { class: 'sbmid' }, h('span', { text: 'to ' + m.cfg.target }), h('span', { class: 'rally', id: 'rallyNo', text: m.phase === 'rally' ? '' : '' })), side(me && me.side === 1 ? 0 : 1));
+    h('div', { class: 'sbmid' }, h('button', { type: 'button', class: 'gearbtn', id: 'gearBtn', 'aria-label': 'Controls and settings', onclick: function () { openCtl(true); } }, icon('gear', 18)), h('span', { text: 'to ' + m.cfg.target })), side(me && me.side === 1 ? 0 : 1));
 }
 function banner(m) {
   const me = m.players.find(function (p) { return p.id === S.me && !p.left; });
@@ -4500,15 +4596,22 @@ function gameScreen() {
   if (me && touchy()) tools.push(h('p', { class: 'runhint', text: 'Drag on the left side to run' }));
   if (me) tools.push(h('div', { class: 'energy', 'aria-label': 'Your energy' }, h('span', { class: 'elbl', text: 'Energy' }), h('span', { class: 'ebar' }, h('span', { class: 'efill hi', id: 'myEnergy' }))));
   if (!me) tools.push(h('p', { class: 'watching', id: 'watching', text: '👁 You’re watching. You can join when this game ends.' }));
-  const ctl = [h('button', { type: 'button', class: 'btn small ghost', id: 'ctlBtn', 'aria-expanded': OPEN.ctl ? 'true' : 'false', onclick: function () { OPEN.ctl = !OPEN.ctl; render(); } }, '⚙ Controls'), h('button', { type: 'button', class: 'btn small ghost', id: 'guideBtn', 'aria-pressed': S.guide ? 'true' : 'false', onclick: function () { S.guide = !S.guide; store('guide', S.guide ? '1' : '0'); render(); } }, 'Landing guide: ' + (S.guide ? 'on' : 'off'))];
+  const ctl = [h('button', { type: 'button', class: 'btn small ghost', id: 'ctlBtn', 'aria-expanded': OPEN.ctl ? 'true' : 'false', onclick: function () { openCtl(!OPEN.ctl); } }, '⚙ Controls'), h('button', { type: 'button', class: 'btn small ghost', id: 'guideBtn', 'aria-pressed': S.guide ? 'true' : 'false', onclick: function () { S.guide = !S.guide; store('guide', S.guide ? '1' : '0'); render(); } }, 'Landing guide: ' + (S.guide ? 'on' : 'off'))];
+  if (me) {
+    const used = (m.breaks && m.breaks[S.me]) || 0, left = BD.BREAKS - used;
+    const ok = !m.paused && (m.phase === 'point' || m.phase === 'serve') && left > 0;
+    ctl.unshift(h('button', { type: 'button', class: 'btn small', id: 'breakBtn', disabled: !ok, title: 'Pause between points', onclick: function () { Net.pause(); } }, '🥤 Break' + (left < BD.BREAKS ? ' (' + left + ' left)' : '')));
+  }
   if (S.isHost && !S.local) ctl.push(confirmBtn('end', 'End game', 'Confirm: end game', hostEndGame, 'small'));
   if (S.local) ctl.push(confirmBtn('quit', 'Quit practice', 'Confirm: quit', function () { hostClose(); }, 'small'));
   if (!S.isHost) ctl.push(confirmBtn('leave', 'Leave', 'Confirm: leave', function () { Net.leave(); }, 'small'));
   tools.push(h('div', { class: 'row ctl' }, ctl));
   nodes.push(h('div', { class: 'below' }, tools));
-  if (OPEN.ctl) nodes.push(card(h('div', { class: 'cardhead' }, h('h3', { text: 'Controls' }), btn('Done', function () { OPEN.ctl = false; Input.capture = null; render(); }, { kind: 'small', id: 'ctlDone' })), controlsPanel()));
+  if (OPEN.ctl) nodes.push(h('div', { class: 'sheet', id: 'ctlSheet', role: 'dialog', 'aria-label': 'Controls', onclick: function (e) { if (e.target === e.currentTarget) openCtl(false); } },
+    h('div', { class: 'sheetbox' }, h('div', { class: 'cardhead' }, h('h3', { text: S.local ? 'Controls · game paused' : m.paused ? 'Controls · on a break' : 'Controls (tip: call a 🥤 break between points first)' }), btn('Done', function () { openCtl(false); }, { kind: 'primary small', id: 'ctlDone' })), controlsPanel())));
   return nodes;
 }
+function openCtl(on) { OPEN.ctl = !!on; Input.capture = null; S.paused = !!on; render(); }
 function overScreen(m) {
   const sum = BD.summary(m), me = m.players.find(function (p) { return p.id === S.me; });
   const w = m.winner;

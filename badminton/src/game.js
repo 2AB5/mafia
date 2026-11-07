@@ -10,6 +10,7 @@ const BD = (function () {
   const MAX_SPEED = 5.0;
   const GRACE = 0.16;                          // a landing is final only after this long: covers network delay on late saves
   const POINT_PAUSE = 1.7, SERVE_WAIT = 8;
+  const BREAKS = 2, BREAK_SECS = 60, RESUME_SECS = 3;               // hydration breaks between points
   const LEVELS = {
     // easy bots also take a moment to get going (accel, m/s²) and misjudge the flight a little (miss, metres)
     easy: { react: 0.48, speed: 0.64, accel: 10, miss: 0.3, noise: 0.6, smash: 0.25, smart: 0.2, eager: 0.25, err: 0.13, fool: 0.9 },
@@ -103,6 +104,7 @@ const BD = (function () {
       stats: {}, events: [], log: []
     };
     m.players.forEach(function (p) { m.stats[p.id] = { hits: 0, smashes: 0, winners: 0, errors: 0, fastest: 0, aces: 0 }; });
+    m.breaks = {}; m.paused = null;
     startServe(m, rng);
     return m;
   }
@@ -151,7 +153,7 @@ const BD = (function () {
   function moveTo(m, id, x, y, dt) {
     const p = playerOf(m, id);
     if (!p || p.left || !isFinite(x) || !isFinite(y)) return;
-    if (m.phase === 'serve' && p.id === m.server) return;        // the server holds still until they serve
+    if (m.paused || (m.phase === 'serve' && p.id === m.server)) return;        // frozen in a break; the server holds still until they serve
     dt = Math.max(dt || DT, 1e-3);
     const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy), cap = speedCap(m, p) * 1.25 * dt + 0.02;
     const k = d > cap ? cap / d : 1;
@@ -261,7 +263,7 @@ const BD = (function () {
   function swing(m, id, button, aim, rng, past) {
     rng = rng || Math.random;
     const p = playerOf(m, id);
-    if (!p || p.left || (m.phase !== 'rally' && m.phase !== 'serve')) return null;
+    if (!p || p.left || m.paused || (m.phase !== 'rally' && m.phase !== 'serve')) return null;
     if (p.swing > 0.18) return null;                               // still finishing the last swing
     p.swing = 0.32;
     if (m.phase === 'serve') {
@@ -370,9 +372,38 @@ const BD = (function () {
     if (winSide !== m.serveSide) { m.serveSide = winSide; m.nextServer[winSide]++; }
     m.phase = 'point'; m.phaseT = 0;
   }
+  /* hydration break: only between points; the clock stops for everyone until someone resumes (or time's up) */
+  function canBreak(m, id) {
+    const p = playerOf(m, id);
+    return !!p && !p.left && !m.paused && (m.phase === 'point' || m.phase === 'serve') && (m.breaks[id] || 0) < BREAKS;
+  }
+  function callBreak(m, id) {
+    if (!m.breaks) m.breaks = {};
+    if (!canBreak(m, id)) return false;
+    m.breaks[id] = (m.breaks[id] || 0) + 1;
+    m.paused = { by: id, left: BREAK_SECS, count: null };
+    m.players.forEach(function (p) { p.vx = 0; p.vy = 0; });
+    ev(m, { k: 'break', by: id });
+    addLog(m, nameOf(m, id) + ' called a hydration break.');
+    return true;
+  }
+  function resumeBreak(m, id) {
+    const p = playerOf(m, id);
+    if (!m.paused || m.paused.count !== null || !p || p.left) return false;
+    m.paused.count = RESUME_SECS;
+    ev(m, { k: 'resume', by: id });
+    return true;
+  }
   function step(m, dt, rng) {
     rng = rng || Math.random;
     if (m.phase === 'over') return;
+    if (m.paused) {
+      const z = m.paused;
+      z.left -= dt;
+      if (z.count === null && z.left <= 0) z.count = RESUME_SECS;
+      if (z.count !== null) { z.count -= dt; if (z.count <= 0) { m.paused = null; ev(m, { k: 'play' }); } }
+      return;
+    }
     m.t += dt; m.phaseT += dt;
     tire(m, dt);
     if (m.phase === 'point') { if (m.phaseT >= POINT_PAUSE) startServe(m, rng); return; }
@@ -522,7 +553,7 @@ const BD = (function () {
   }
   /* apply a bot's movement for one step (bots are simulated on the host) */
   function botMove(m, p, think, dt) {
-    if (m.phase === 'serve' && p.id === m.server) return;
+    if (m.paused || (m.phase === 'serve' && p.id === m.server)) return;
     const L = LEVELS[p.bot] || LEVELS.normal;
     if (L.accel) {
       // easy bots can't start or stop instantly
@@ -553,7 +584,7 @@ const BD = (function () {
   }
 
   return {
-    C: C, ZONES: ZONES, preview: preview, G: G, K: K, DT: DT, REACH: REACH, MAX_SPEED: MAX_SPEED, GRACE: GRACE, POINT_PAUSE: POINT_PAUSE, SERVE_WAIT: SERVE_WAIT, SMASH_Z: SMASH_Z, LEVELS: LEVELS, BOT_NAMES: BOT_NAMES, NAMES: NAMES,
+    C: C, ZONES: ZONES, preview: preview, BREAKS: BREAKS, BREAK_SECS: BREAK_SECS, canBreak: canBreak, callBreak: callBreak, resumeBreak: resumeBreak, G: G, K: K, DT: DT, REACH: REACH, MAX_SPEED: MAX_SPEED, GRACE: GRACE, POINT_PAUSE: POINT_PAUSE, SERVE_WAIT: SERVE_WAIT, SMASH_Z: SMASH_Z, LEVELS: LEVELS, BOT_NAMES: BOT_NAMES, NAMES: NAMES,
     defaultConfig: defaultConfig, normalizeConfig: normalizeConfig, capFor: capFor, modeFor: modeFor, halfW: halfW, sgn: sgn,
     stepShuttle: stepShuttle, fly: fly, launch: launch, speedFor: speedFor, angleFor: angleFor,
     newMatch: newMatch, playerOf: playerOf, nameOf: nameOf, teamOf: teamOf, solo: solo, startServe: startServe,

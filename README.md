@@ -89,11 +89,12 @@ The last-bench classic, online for 2 to 5 friends. Everyone has a pen on the sam
   - Pencil: never rolls
   - Highlighter: ricochet king
   - Fountain pen: steady, barely bounces
-- **Progress (no sign-in):**
-  - You earn XP in online matches: +20 for playing, +30 per round won, +15 per knock-off, +60 for a win, and a streak bonus.
-  - Levels unlock pens (Fat marker at 2, Pencil at 3, Highlighter at 4, Fountain pen at 6) and desk styles (Walnut at 3, Exam hall at 5, Birch at 7).
-  - Everything is saved in your browser on that device.
-- **Controls:** choose "pull back" (slingshot) or "push forward" in your pencil case.
+- **All pens are open:** pick any pen in your pencil case. Your desk style (Oak, Walnut, Exam hall, Birch), flick style ("pull back" slingshot or "push forward") and replay setting are saved in your browser on that device.
+- **Computer players:**
+  - Practice alone against 1 to 4 bots, or let the host add bots to an online room to fill empty seats.
+  - There are three levels: Easy, Normal and Hard. The host taps a bot's badge in the lobby to change its level.
+  - Bots aren't predictable. Each one tries dozens of shots in a quick simulation, picks among the good ones with some randomness, and then has a slightly shaky hand. Easy bots take more risks and miss more often.
+- **Instant replays:** whenever a pen goes off the desk, everyone sees the shot again in slow motion, with the camera zoomed on the action. Tap to skip, or use "Replay last shot" at any time. Replays can be turned off in the pencil case.
 - **What everyone sees:** the shooter's aim arrow appears live on every screen, and the shot plays out on all phones at once. You can send reactions (😂 😱 🔥 👏 😤 💀) during play.
 - **Host options:** free-for-all or teams, first to 1, 2, 3 or 5 rounds, and a turn timer (off, 20, 30 or 45 seconds). Offline players' turns are skipped automatically, and the host can skip a turn or remove someone who left.
 - **One device:** 2 to 5 players can pass one phone around or share a laptop, with teams available for 3 or more.
@@ -106,8 +107,8 @@ The last-bench classic, online for 2 to 5 friends. Everyone has a pen on the sam
 
 | Path | What it holds |
 | --- | --- |
-| `penfight/src/game.js` | Desk physics and match rules, tested in Node |
-| `penfight/src/net.js` | Rooms and the host-run game loop |
-| `penfight/src/progress.js` | XP, levels and unlocks (browser storage) |
+| `penfight/src/game.js` | Desk physics, match rules and the computer player, tested in Node |
+| `penfight/src/net.js` | Rooms, the host-run game loop, bot turns and replay recording |
+| `penfight/src/settings.js` | Desk, flick and replay settings (browser storage) |
 | `penfight/src/ui.js` | Desk renderer, flick controls and screens |
 | `penfight/index.html` | The built page (`node penfight/build.js`) |

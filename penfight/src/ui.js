@@ -22,8 +22,9 @@ function teamBadge(t, onClick) {
     ? h('button', { type: 'button', class: 'teamb t' + t, 'aria-label': 'Team ' + lab + '. Tap to switch', 'data-team': String(t), onclick: onClick }, lab)
     : h('em', { class: 'teamb t' + t, 'data-team': String(t), text: lab });
 }
-function shooterIsMe() { const m = match(); return !!m && (isLocal() || m.turn === S.me); }
-function canShoot() { const m = match(); return !!m && m.phase === 'aim' && shooterIsMe() && (isLocal() || S.conn === 'open'); }
+function isBot(id) { const m = match(); const p = m && m.players.find(function (q) { return q.id === id; }); return !!(p && p.bot); }
+function shooterIsMe() { const m = match(); return !!m && !isBot(m.turn) && (isLocal() || m.turn === S.me); }
+function canShoot() { const m = match(); return !!m && !REPLAY && m.phase === 'aim' && shooterIsMe() && (isLocal() || S.conn === 'open'); }
 
 /* ---------- building blocks ---------- */
 function card() { const c = h('section', { class: 'card' }); for (let i = 0; i < arguments.length; i++) add(c, arguments[i]); return c; }
@@ -126,10 +127,9 @@ function penStats(skinId) {
 function skinPicker(id, current, taken, onPick) {
   return h('div', {}, h('div', { class: 'skins', id: id, role: 'group', 'aria-label': 'Choose your pen' }, PF.SKINS.map(function (sk) {
     const isTaken = !!(taken && taken[sk.id]);
-    const locked = !isUnlocked(sk.id);
-    return h('button', { type: 'button', class: 'skinb' + (sk.id === current ? ' on' : '') + (locked ? ' locked' : ''), 'aria-pressed': sk.id === current ? 'true' : 'false', disabled: isTaken || locked, 'data-skin': sk.id,
-      'aria-label': sk.name + (locked ? ', unlocks at level ' + sk.level : isTaken ? ', taken' : ''),
-      onclick: function () { onPick(sk.id); SFX.click(); } }, penPreview(sk.id, 92, 22), h('span', { text: sk.name }), locked ? h('em', { class: 'lock', text: '\ud83d\udd12 Level ' + sk.level }) : null);
+    return h('button', { type: 'button', class: 'skinb' + (sk.id === current ? ' on' : ''), 'aria-pressed': sk.id === current ? 'true' : 'false', disabled: isTaken, 'data-skin': sk.id,
+      'aria-label': sk.name + (isTaken ? ', taken' : ''),
+      onclick: function () { onPick(sk.id); SFX.click(); } }, penPreview(sk.id, 92, 22), h('span', { text: sk.name }));
   })), penStats(current && validSkin(current) ? current : 'blue'));
 }
 
@@ -209,13 +209,63 @@ function makeWood(s) {
   x.restore();
   return c;
 }
-function toScreen(x, y) { return [x * stage.scale + stage.w / 2, y * stage.scale + stage.h / 2]; }
-function toWorld(px, py) { return [(px - stage.w / 2) / stage.scale, (py - stage.h / 2) / stage.scale]; }
+const CAM = { x: 0, y: 0, z: 1 };             // the replay camera zooms in; normally it shows the whole desk
+function toScreen(x, y) { return [(x - CAM.x) * stage.scale * CAM.z + stage.w / 2, (y - CAM.y) * stage.scale * CAM.z + stage.h / 2]; }
+function toWorld(px, py) { return [(px - stage.w / 2) / (stage.scale * CAM.z) + CAM.x, (py - stage.h / 2) / (stage.scale * CAM.z) + CAM.y]; }
+
+/* ---------- instant replays ---------- */
+let REPLAY = null;
+const REPLAY_LOG = [];                         // ids of replays this screen has played (for debugging/tests)
+function replayEnd(r) { return r.frames[r.frames.length - 1].t; }
+function startReplay(r) {
+  if (!r || !stage) return;
+  const m = match();
+  // focus the camera on the pens that moved
+  const f0 = r.frames[0].p;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  r.frames.forEach(function (f) { f.p.forEach(function (q, i) {
+    if (!q || !f0[i] || f0[i][3]) return;
+    if (Math.hypot(q[0] - f0[i][0], q[1] - f0[i][1]) > 0.08 || q[3]) { x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); x1 = Math.max(x1, q[0]); y1 = Math.max(y1, q[1]); }
+  }); });
+  const V = view();
+  let cx = 0, cy = 0, z = 1;
+  if (isFinite(x0)) {
+    cx = (x0 + x1) / 2; cy = (y0 + y1) / 2;
+    z = Math.max(1, Math.min(1.8, Math.min(V.w / (x1 - x0 + 3.2), V.h / (y1 - y0 + 3.2))));
+  }
+  REPLAY_LOG.push(r.id); if (REPLAY_LOG.length > 50) REPLAY_LOG.shift();
+  REPLAY = { r: r, start: performance.now(), dur: replayEnd(r) / REPLAY_SPEED * 1000 + 900, cx: cx, cy: cy, z: z, key: 'R' + r.id + ':' + Math.round(performance.now()) };
+  drag = null;
+  tone(900, 0.35, 'triangle', 0.04, 0, 300);
+  render();
+}
+function stopReplay() { if (!REPLAY) return; REPLAY = null; CAM.x = 0; CAM.y = 0; CAM.z = 1; render(); }
+function updateReplay(now) {
+  if (!REPLAY) { CAM.x = 0; CAM.y = 0; CAM.z = 1; return; }
+  const el = now - REPLAY.start;
+  if (el >= REPLAY.dur) { stopReplay(); return; }
+  const ease = function (u) { u = Math.max(0, Math.min(1, u)); return u * u * (3 - 2 * u); };
+  const f = Math.min(ease(el / 600), ease((REPLAY.dur - el) / 600));
+  CAM.x = REPLAY.cx * f; CAM.y = REPLAY.cy * f; CAM.z = 1 + (REPLAY.z - 1) * f;
+}
+function replayPoses(now) {
+  const r = REPLAY.r, fr = r.frames;
+  const t = Math.min(replayEnd(r), (now - REPLAY.start) / 1000 * REPLAY_SPEED);
+  let a = fr[0], b = fr[0];
+  for (let i = 0; i < fr.length; i++) { if (fr[i].t <= t) { a = fr[i]; b = fr[i + 1] || fr[i]; } }
+  const span = b.t - a.t, k = span > 0 ? Math.max(0, Math.min(1, (t - a.t) / span)) : 1;
+  return a.p.map(function (pa, i) {
+    const pb = b.p[i] || pa;
+    let da = pb[2] - pa[2]; while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
+    return { x: pa[0] + (pb[0] - pa[0]) * k, y: pa[1] + (pb[1] - pa[1]) * k, a: pa[2] + da * k, out: !!(pb[3] || pa[3]), gone: !!fr[0].p[i][3] };
+  });
+}
 
 /* poses to draw right now */
 function currentPoses() {
   const m = match();
   if (!m) return [];
+  if (REPLAY) return replayPoses(performance.now());
   if (m.phase === 'roll') {
     if (S.isHost && H.sim && H.match && H.match.id === m.id) return H.sim.poses(H.match);
     const fr = S.frames;
@@ -238,15 +288,16 @@ function frameLoop() {
   requestAnimationFrame(frameLoop);
   if (!stage || !stage.wrap.isConnected) return;
   sizeStage();
+  updateReplay(performance.now());
   drawDesk();
   tickHud();
 }
 function drawDesk() {
   const s = stage, ctx = s.ctx, m = match();
-  const k = s.scale * s.dpr;
+  const k = s.scale * s.dpr * CAM.z;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, s.canvas.width, s.canvas.height);
-  ctx.setTransform(k, 0, 0, k, (s.w / 2) * s.dpr, (s.h / 2) * s.dpr);
+  ctx.setTransform(k, 0, 0, k, (s.w / 2) * s.dpr - CAM.x * k, (s.h / 2) * s.dpr - CAM.y * k);
   const tw = desk().w, th = desk().h;
   // desk edge and shadow
   ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 24 * s.dpr; ctx.shadowOffsetY = 8 * s.dpr;
@@ -262,9 +313,10 @@ function drawDesk() {
   m.pens.forEach(function (pen, i) {
     const p = poses[i]; if (!p) return;
     const skin = PF.skinById((m.players.find(function (q) { return q.id === pen.id; }) || {}).skin);
-    const key = m.id + ':' + m.round + ':' + pen.id;
+    if (p.gone) return;                                            // already off before the replayed shot
+    const key = (REPLAY ? REPLAY.key : m.id + ':' + m.round) + ':' + pen.id;
     if (p.out) {
-      if (!fallAnim[key]) { fallAnim[key] = { t: now, x: p.x, y: p.y, a: p.a }; if (!S.isHost && m.phase !== 'roll') fallAnim[key].t = now - 1000; }
+      if (!fallAnim[key]) { fallAnim[key] = { t: now, x: p.x, y: p.y, a: p.a }; if (!REPLAY && !S.isHost && m.phase !== 'roll') fallAnim[key].t = now - 1000; }
       const f = fallAnim[key], e = (now - f.t) / 650;
       if (e >= 1) return;
       const dx = f.x, dy = f.y, d = Math.hypot(dx, dy) || 1;
@@ -272,16 +324,17 @@ function drawDesk() {
       drawPen(ctx, skin, { alpha: 1 - e, noShadow: true }); ctx.restore();
       return;
     }
-    const active = m.phase === 'aim' && m.turn === pen.id;
+    const active = REPLAY ? REPLAY.r.by === pen.id : m.phase === 'aim' && m.turn === pen.id;
     ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a);
     drawPen(ctx, skin, { glow: active ? (shooterIsMe() ? '#ffd23f' : 'rgba(255,255,255,.85)') : null });
     ctx.restore();
   });
   // aim arrow (mine while dragging, or the shooter's live aim)
   let aim = null;
-  if (drag && drag.cur && canShoot()) aim = { lx: drag.lx, dx: drag.vx, dy: drag.vy, mine: true };
+  if (REPLAY) aim = null;
+  else if (drag && drag.cur && canShoot()) aim = { lx: drag.lx, dx: drag.vx, dy: drag.vy, mine: true };
   else if (S.aim && m.phase === 'aim' && S.aim.k === m.turnNo && !shooterIsMe()) aim = { lx: S.aim.lx * PF.specOf(m, m.turn).len / 2, dx: S.aim.dx, dy: S.aim.dy };
-  if (aim) {
+  if (aim && !REPLAY) {
     const i = m.pens.findIndex(function (q) { return q.id === m.turn; });
     const p = poses[i];
     if (p && !p.out) drawAim(ctx, p, aim);
@@ -290,9 +343,9 @@ function drawDesk() {
   ctx.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
   ctx.font = '700 12px "Nunito", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   m.pens.forEach(function (pen, i) {
-    const p = poses[i]; if (!p || p.out) return;
+    const p = poses[i]; if (!p || p.out || p.gone) return;
     const sp = toScreen(p.x, p.y);
-    const label = PF.nameOf(m, pen.id) + (pen.id === S.me && !isLocal() ? ' (you)' : '');
+    const label = PF.nameOf(m, pen.id) + (pen.id === S.me && !isLocal() ? ' (you)' : isBot(pen.id) ? ' \ud83e\udd16' : '');
     const tw2 = ctx.measureText(label).width + 14;
     const ty = sp[1] - 26;
     const tt = m.teamScore ? PF.teamOf(m, pen.id) : null;
@@ -301,6 +354,21 @@ function drawDesk() {
     ctx.fillStyle = m.turn === pen.id && m.phase === 'aim' ? '#1d1a10' : '#fff';
     ctx.fillText(label, sp[0], ty + 0.5);
   });
+  if (REPLAY) {
+    const r = REPLAY.r, el = now - REPLAY.start, prog = Math.min(1, el / REPLAY.dur);
+    ctx.fillStyle = 'rgba(10,12,20,.78)'; rr(ctx, 10, 10, 168, 30, 15); ctx.fill();
+    ctx.fillStyle = '#ff5a4a'; ctx.beginPath(); ctx.arc(26, 25, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.font = '800 13px "Nunito", system-ui, sans-serif';
+    ctx.fillText('INSTANT REPLAY \u00b7 slow-mo', 38, 25.5);
+    const msg = r.fell.length ? PF.nameOf(m, r.by) + (r.fell.indexOf(r.by) !== -1 && r.fell.length === 1 ? ' flicks themselves off!' : ' knocks off ' + r.fell.filter(function (id) { return id !== r.by; }).map(function (id) { return PF.nameOf(m, id); }).join(' & ') + '!') : PF.nameOf(m, r.by) + '\u2019s flick';
+    ctx.font = '800 15px "Nunito", system-ui, sans-serif'; ctx.textAlign = 'center';
+    const mw = Math.min(s.w - 24, ctx.measureText(msg).width + 24);
+    ctx.fillStyle = 'rgba(10,12,20,.78)'; rr(ctx, s.w / 2 - mw / 2, s.h - 58, mw, 28, 14); ctx.fill();
+    ctx.fillStyle = '#ffd23f'; ctx.fillText(msg, s.w / 2, s.h - 43.5);
+    ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.font = '700 11px "Nunito", system-ui, sans-serif'; ctx.fillText('Tap to skip', s.w / 2, s.h - 18);
+    ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(0, s.h - 4, s.w, 4); ctx.fillStyle = '#ff5a4a'; ctx.fillRect(0, s.h - 4, s.w * prog, 4);
+    ctx.textAlign = 'center';
+  }
   S.floats = S.floats.filter(function (f) { return now - f.t < 1800; });
   ctx.font = '30px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
   S.floats.forEach(function (f, j) {
@@ -369,6 +437,7 @@ function myPose() {
   return p && !p.out ? p : null;
 }
 function onDown(e) {
+  if (REPLAY) { e.preventDefault(); stopReplay(); return; }
   if (!canShoot() || drag) return;
   const p = myPose(); if (!p) return;
   const w = evWorld(e);
@@ -377,7 +446,7 @@ function onDown(e) {
   const along = rx * c + ry * sn, perp = -rx * sn + ry * c;
   const hl = PF.specOf(match(), match().turn).len / 2;
   if (Math.abs(along) > hl + 0.35 || Math.abs(perp) > 0.55) {
-    if (Math.hypot(rx, ry) > 1.4) { toast('Press on your own pen (the glowing one), then ' + (PROF.p.flick === 'push' ? 'push forward.' : 'pull back.')); return; }
+    if (Math.hypot(rx, ry) > 1.4) { toast('Press on your own pen (the glowing one), then ' + (SET.flick === 'push' ? 'push forward.' : 'pull back.')); return; }
   }
   e.preventDefault();
   drag = { id: e.pointerId, lx: Math.max(-hl, Math.min(hl, along)), cur: null, vx: 0, vy: 0 };
@@ -391,7 +460,7 @@ function onMove(e) {
   const w = evWorld(e);
   const gx = p.x + Math.cos(p.a) * drag.lx, gy = p.y + Math.sin(p.a) * drag.lx;
   // pull back like a slingshot (default), or push forward in the direction you want to flick
-  const push = PROF.p.flick === 'push';
+  const push = SET.flick === 'push';
   const dx = push ? w[0] - gx : gx - w[0], dy = push ? w[1] - gy : gy - w[1], d = Math.hypot(dx, dy);
   const pw = Math.min(1, d / DRAG_FULL);
   drag.cur = w;
@@ -426,13 +495,7 @@ onStateHook = function (prev, d) {
     if (pm.phase === 'aim' && m.phase === 'roll' && m.lastShot) SFX.flick(m.lastShot.power || 0.5);
     if (m.phase === 'aim' && (pm.turnNo !== m.turnNo || pm.phase !== 'aim') && (isLocal() || m.turn === S.me)) { SFX.turn(); if (!isLocal()) buzz(30); }
     if (pm.phase !== 'roundover' && m.phase === 'roundover') SFX.round();
-    if (pm.phase !== 'over' && m.phase === 'over') {
-      SFX.win();
-      if (!isLocal()) {
-        const r = awardMatch(m, S.me);
-        if (r && r.unlocked.length) setTimeout(function () { SFX.join(); toast('Unlocked: ' + r.unlocked.join(', ') + '!'); }, 900);
-      }
-    }
+    if (pm.phase !== 'over' && m.phase === 'over') SFX.win();
   } else if (m.phase === 'aim' && m.turn === S.me) SFX.turn();
 };
 function showReaction(pid, e) { S.floats.push({ pid: pid, e: e, t: performance.now() }); }
@@ -483,8 +546,7 @@ function homeScreen() {
     const nm = cleanName(S.name);
     if (!nm) { setErr('Type your name first.'); const el = document.getElementById('nameIn'); if (el) el.focus(); return null; }
     S.err = '';
-    const open = PF.SKINS.filter(function (k) { return isUnlocked(k.id); });
-    if (!S.skin || !isUnlocked(S.skin)) { S.skin = open[hash(nm) % open.length].id; store('skin', S.skin); }
+    if (!S.skin || !validSkin(S.skin)) { S.skin = PF.SKINS[hash(nm) % PF.SKINS.length].id; store('skin', S.skin); }
     store('name', nm);
     return nm;
   };
@@ -500,12 +562,34 @@ function homeScreen() {
   const create = btn('Create a room', function () { const nm = need(); if (!nm) return; hostCreate(nm, usableSkin(S.skin)); }, { kind: invited ? 'ghost' : 'primary big', id: 'createBtn' });
   if (invited) nodes.push(card(h('h3', { text: 'Join room' }), joinForm, h('p', { class: 'hint', text: 'Or start your own:' }), create));
   else nodes.push(card(h('h3', { text: 'Play online' }), create, h('div', { class: 'or' }, h('span', { text: 'or join friends' })), joinForm));
-  nodes.push(caseCard());
+  nodes.push(practiceCard());
+  nodes.push(settingsCard());
   nodes.push(localCard());
   nodes.push(howCard());
   return nodes;
 }
 const LOCAL = { n: 2, names: ['', '', '', '', ''], teams: false };
+const PRACTICE = { bots: 1, level: 'normal', teams: false };
+function practiceCard() {
+  return h('section', { class: 'card', id: 'practiceCard' }, h('h3', { text: 'Practice vs computer' }),
+    h('p', { class: 'dim', text: 'No friends online? Flick against computer players. They read the desk like you do, and never play the same way twice.' }),
+    seg('Opponents', 'pracBots', [[1, '1'], [2, '2'], [3, '3'], [4, '4']], PRACTICE.bots, function (v) { PRACTICE.bots = v; if (v < 2) PRACTICE.teams = false; render(); }),
+    seg('Difficulty', 'pracLevel', [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard']], PRACTICE.level, function (v) { PRACTICE.level = v; render(); }),
+    PRACTICE.bots >= 2 ? seg('Mode', 'pracMode', [[false, 'Free-for-all'], [true, 'Teams']], PRACTICE.teams, function (v) { PRACTICE.teams = v; render(); }) : null,
+    btn('Start practice', function () {
+      const me = cleanName(S.name) || 'You';
+      const mySkin = usableSkin(S.skin);
+      const others = PF.SKINS.map(function (k) { return k.id; }).filter(function (k) { return k !== mySkin; });
+      const names = PF.BOT_NAMES.slice().sort(function () { return secureRng() - 0.5; });
+      const players = [{ name: me, skin: mySkin, team: 0 }];
+      for (let i = 0; i < PRACTICE.bots; i++) {
+        const sk = others.splice(Math.floor(secureRng() * others.length), 1)[0];
+        players.push({ name: names[i], skin: sk, bot: PRACTICE.level, team: PRACTICE.teams ? (i % 2 === 0 ? 1 : 0) : undefined });
+      }
+      if (!PRACTICE.teams) players.forEach(function (p) { delete p.team; });
+      localBegin(players, { target: 3, turnSecs: 0, teams: PRACTICE.teams });
+    }, { kind: 'primary', id: 'practiceStart' }));
+}
 function localCard() {
   const rows = [];
   for (let i = 0; i < LOCAL.n; i++) {
@@ -566,13 +650,14 @@ function lobbyScreen() {
   const seats = order.map(function (r) {
     return h('div', { class: 'seat' + (r.on ? '' : ' off') + (teams ? ' t' + r.team : ''), 'data-id': r.id }, penPreview(r.skin, 84, 20),
       h('span', { class: 'nm', text: r.name }), r.id === S.me ? h('em', { class: 'tag', text: 'you' }) : null, r.id === d.hostId ? h('em', { class: 'tag', text: 'host' }) : null,
+      r.bot ? (host ? h('button', { type: 'button', class: 'tag botb', 'data-bot': r.id, 'aria-label': 'Computer, ' + r.bot + '. Tap to change difficulty', onclick: function () { hostCycleBot(r.id); } }, '\ud83e\udd16 ' + r.bot) : h('em', { class: 'tag botb', text: '\ud83e\udd16 ' + r.bot })) : null,
       teams && (r.team === 0 || r.team === 1) ? teamBadge(r.team, host ? function () { hostSetTeam(r.id, 1 - r.team); } : null) : null,
       !r.on ? h('em', { class: 'tag warnt', text: 'offline' }) : null,
       host && r.id !== S.me ? h('button', { type: 'button', class: 'xbtn', 'aria-label': 'Remove ' + r.name, 'data-remove': r.id, onclick: function () { hostRemove(r.id); } }, icon('x', 14)) : null);
   });
   for (let i = n; i < PF.MAX_PLAYERS; i++) seats.push(h('div', { class: 'seat empty' }, h('span', { class: 'nm', text: 'Empty seat' })));
   const sc = card(h('div', { class: 'cardhead' }, h('h2', { text: 'The desk' }), h('span', { class: 'count', id: 'seatCount', text: n + ' / ' + PF.MAX_PLAYERS })),
-    h('p', { class: 'dim', text: n < 2 ? 'Waiting for at least one friend.' : 'Ready to fight. More can still join.' }), h('div', { class: 'seats' }, seats));
+    h('p', { class: 'dim', text: n < 2 ? 'Waiting for a friend, or add a computer player.' : 'Ready to fight. More can still join.' }), h('div', { class: 'seats' }, seats));
   if (!S.me && !host) {
     const taken = {}; roster.forEach(function (r) { taken[r.skin] = true; });
     sc.appendChild(h('div', { class: 'sitbox' }, h('h3', { text: 'Take a seat' }),
@@ -582,6 +667,8 @@ function lobbyScreen() {
   }
   nodes.push(sc);
   if (host) {
+    if (n < PF.MAX_PLAYERS) sc.appendChild(h('div', { class: 'addbot' }, h('span', { class: 'lbl', text: 'Add a computer player' }),
+      h('div', { class: 'row' }, ['easy', 'normal', 'hard'].map(function (lv) { return btn('+ ' + lv[0].toUpperCase() + lv.slice(1), function () { hostAddBot(lv); }, { kind: 'small', id: 'addBot-' + lv }); }))));
     nodes.push(card(h('h3', { text: 'Match rules' }),
       seg('Mode', 'cfgMode', [[false, 'Free-for-all'], [true, 'Teams']], teams, function (v) { hostSetCfg({ teams: v }); }),
       teams ? h('p', { class: 'hint', id: 'teamHint', text: n < 3 ? 'Teams need at least 3 players.' : 'Tap a team badge to move that player. Turns alternate between teams; a team wins the round when no opponent pen is left.' }) : null,
@@ -622,10 +709,11 @@ function hud() {
 function teamName(t) { return PF.TEAMS[t].name; }
 function statusText() {
   const m = match();
+  if (REPLAY) return 'Instant replay\u2026';
   if (m.phase === 'aim') {
     const tl = m.teamScore ? ' (' + teamName(PF.teamOf(m, m.turn)).replace(' team', '') + ')' : '';
-    if (shooterIsMe()) return (isLocal() ? nameOf(m.turn) + tl + ', your flick! ' : 'Your flick! ') + (PROF.p.flick === 'push' ? 'Press your glowing pen, push the way you want it to go, let go.' : 'Press your glowing pen, pull back, let go.');
-    return nameOf(m.turn) + tl + ' is lining up a shot…';
+    if (shooterIsMe()) return (isLocal() ? nameOf(m.turn) + tl + ', your flick! ' : 'Your flick! ') + (SET.flick === 'push' ? 'Press your glowing pen, push the way you want it to go, let go.' : 'Press your glowing pen, pull back, let go.');
+    return nameOf(m.turn) + tl + (isBot(m.turn) ? ' (computer) is thinking…' : ' is lining up a shot…');
   }
   if (m.phase === 'roll') return m.lastShot ? nameOf(m.lastShot.by) + ' flicked at ' + Math.round(m.lastShot.power * 100) + '% power!' : 'Flying…';
   if (m.phase === 'roundover') {
@@ -651,6 +739,7 @@ function stageOverlay() {
   const m = match(), ov = stage.overlay;
   clear(ov);
   ov.className = 'stage-ov';
+  if (REPLAY) return;
   if (m.phase === 'roundover') {
     ov.classList.add('show');
     const w = m.roundWinner, tw = m.teamScore ? m.roundTeam : null;
@@ -679,42 +768,21 @@ function stageOverlay() {
       h('p', { class: 'ov-k', text: 'Match over' }),
       h('h2', { class: 'ov-t', id: 'winner', text: twin !== null ? teamName(twin) + ' wins the match!' : nameOf(w) + (w === S.me && !isLocal() ? ' (you!)' : '') + ' is the desk champion' }),
       twin !== null ? h('p', { class: 'ov-s', text: 'Champions: ' + mates }) : null,
-      PROF.last && PROF.last.id === m.id ? xpCard(PROF.last) : null,
+
       scoreList(m), h('div', { class: 'ovbtns' }, buttons)));
   }
 }
-function levelBar(id) {
-  const lp = levelProgress(PROF.p.xp);
-  return h('div', { class: 'lvl', id: id },
-    h('span', { class: 'lvbadge', text: 'Lv ' + lp.level }),
-    h('span', { class: 'lvbar' }, h('span', { class: 'lvfill', style: 'width:' + (lp.need ? Math.round(lp.into / lp.need * 100) : 100) + '%' })),
-    h('span', { class: 'lvtxt', text: lp.need ? lp.toNext + ' XP to level ' + (lp.level + 1) : 'Max level' }));
-}
-function xpCard(r) {
-  return h('div', { class: 'xpcard', id: 'xpCard' },
-    h('p', { class: 'xptotal', text: '+' + r.total + ' XP' }),
-    h('ul', { class: 'xplines' }, r.lines.map(function (l) { return h('li', {}, h('span', { text: l[0] }), h('span', { text: '+' + l[1] })); })),
-    levelBar('xpLevel'),
-    r.unlocked.length ? h('p', { class: 'unlocked', text: '\ud83c\udf89 Unlocked: ' + r.unlocked.join(', ') }) : null);
-}
-function caseCard() {
-  const p = PROF.p, nx = nextUnlock();
-  return h('details', { class: 'card case', id: 'caseD' },
-    h('summary', { class: 'sumh' }, 'Your pencil case ', h('span', { class: 'lvbadge', text: 'Lv ' + myLevel() })),
-    levelBar('homeLevel'),
-    nx ? h('p', { class: 'hint', text: 'Next unlock: ' + nx.name + ' at level ' + nx.level + '. Earn XP in online matches: playing, winning rounds, knocking pens off and winning streaks.' }) : h('p', { class: 'hint', text: 'Everything is unlocked. Show off.' }),
-    h('div', { class: 'statgrid' },
-      [['Matches', p.matches], ['Wins', p.wins], ['Rounds won', p.roundsWon], ['Knock-offs', p.kos], ['Best streak', p.bestStreak], ['Self-flicks off', p.selfOuts]]
-        .map(function (x) { return h('div', { class: 'sg' }, h('strong', { text: String(x[1]) }), h('span', { text: x[0] })); })),
-    h('div', { class: 'field', id: 'deskPick' }, h('span', { class: 'lbl', text: 'Your desk' }),
+function settingsCard() {
+  return h('details', { class: 'card case', id: 'setD' },
+    h('summary', { class: 'sumh', text: 'Settings' }),
+    h('div', { class: 'field', id: 'deskPick' }, h('span', { class: 'lbl', text: 'Desk style (only on your screen)' }),
       h('div', { class: 'seg' }, DESKS.map(function (d) {
-        const ok = deskUnlocked(d.id), on = currentDesk().id === d.id;
-        return h('button', { type: 'button', class: 'segb' + (on ? ' on' : ''), disabled: !ok, 'data-v': d.id, 'aria-pressed': on ? 'true' : 'false',
-          onclick: function () { PROF.p.desk = d.id; saveProfile(); if (stage) stage.w = 0; render(); } }, d.name + (ok ? '' : ' \ud83d\udd12' + d.level));
+        const on = currentDesk().id === d.id;
+        return h('button', { type: 'button', class: 'segb' + (on ? ' on' : ''), 'data-v': d.id, 'aria-pressed': on ? 'true' : 'false',
+          onclick: function () { SET.desk = d.id; saveSettings(); if (stage) stage.w = 0; render(); } }, d.name);
       }))),
-    seg('Flick control', 'flickPick', [['pull', 'Pull back (slingshot)'], ['push', 'Push forward']], p.flick, function (v) { PROF.p.flick = v; saveProfile(); render(); }),
-    h('p', { class: 'hint', text: 'Progress is saved in this browser on this device. No account needed.' }),
-    confirmBtn('reset', 'Reset progress', 'Confirm: erase my progress', function () { resetProfile(); S.skin = usableSkin(S.skin); store('skin', S.skin); }));
+    seg('Flick control', 'flickPick', [['pull', 'Pull back (slingshot)'], ['push', 'Push forward']], SET.flick, function (v) { SET.flick = v; saveSettings(); render(); }),
+    seg('Instant replays of knock-offs', 'replayPick', [[true, 'On'], [false, 'Off']], SET.replays, function (v) { SET.replays = v; saveSettings(); render(); }));
 }
 function scoreList(m) {
   if (m.teamScore) {
@@ -739,7 +807,8 @@ function gameScreen() {
   const tools = [];
   if (!isLocal() && S.me) tools.push(h('div', { class: 'reacts', role: 'group', 'aria-label': 'Reactions' }, REACTIONS.map(function (e) { return h('button', { type: 'button', class: 'react', 'aria-label': 'React ' + e, onclick: function () { Net.react(e); } }, e); })));
   const hostBtns = [];
-  if (S.isHost && m.phase === 'aim' && !shooterIsMe()) hostBtns.push(confirmBtn('skip', 'Skip ' + nameOf(m.turn) + '’s turn', 'Confirm: skip', hostSkip));
+  if (S.lastReplay && S.lastReplay.matchId === m.id && m.phase !== 'roll' && !REPLAY) hostBtns.push(btn('\u21ba Replay last shot', function () { startReplay(S.lastReplay); }, { kind: 'ghost', id: 'replayBtn' }));
+  if (S.isHost && m.phase === 'aim' && !shooterIsMe() && !isBot(m.turn)) hostBtns.push(confirmBtn('skip', 'Skip ' + nameOf(m.turn) + '’s turn', 'Confirm: skip', hostSkip));
   if (S.isHost && m.phase !== 'over') hostBtns.push(confirmBtn('end', isLocal() ? 'Quit match' : 'End match', 'Confirm: end match', hostToLobby));
   if (!S.isHost && m.phase !== 'over') hostBtns.push(confirmBtn('leave', 'Leave room', 'Confirm: leave', function () { Net.leave(); }));
   if (S.isHost && !isLocal() && m.phase !== 'over') {
@@ -832,7 +901,7 @@ render = function () {
 function boot() {
   root = document.getElementById('app');
   const t = store('theme'); if (t) setTheme(t);
-  if (S.skin && !isUnlocked(S.skin)) S.skin = 'blue';
+
   hdrEl = h('header', { class: 'hdr', id: 'hdr' });
   connEl = h('div', { class: 'connwrap', id: 'conn', hidden: true });
   mainEl = h('main', { class: 'main', id: 'main' });
@@ -858,7 +927,7 @@ function boot() {
   render();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
-window.__pf = { S: S, H: H, C: C, PF: PF,
+window.__pf = { S: S, H: H, C: C, PF: PF, replayLog: REPLAY_LOG,
   // test/debug helper: page coordinates of a pen's centre (and its axis) on the desk
   penScreen: function (id) {
     const m = match(); if (!m || !stage) return null;

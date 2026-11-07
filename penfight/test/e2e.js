@@ -90,7 +90,7 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     for (const pg of pages) await waitFor(() => pg.$('#desk'), 'desk visible');
     const idOf = [];
     for (const pg of pages) idOf.push(await ev(pg, 'window.__pf.S.me'));
-    let shots = 0, framesSeen = 0, reloaded = false, rounds = new Set(), sawSpin = false;
+    let shots = 0, framesSeen = 0, reloaded = false, rounds = new Set(), sawSpin = false, replays = 0;
     while (shots < 260) {
       const m = await ev(host, 'window.__pf.H.match');
       if (m.phase === 'over') break;
@@ -128,6 +128,27 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
         if (ls && Math.abs(ls.lx) > 0.3) sawSpin = true;
       }
       shots++;
+      if (gotRoll) {
+        // did this shot knock anything off? then every screen must play its replay
+        const shotId = m.id + ':' + before;
+        await waitFor(() => ev(host, "!!window.__pf.S.lastReplay && window.__pf.S.lastReplay.id === " + JSON.stringify(shotId)), 'host built replay', 5000).catch(() => {});
+        const fell = await ev(host, "window.__pf.S.lastReplay && window.__pf.S.lastReplay.id === " + JSON.stringify(shotId) + " ? window.__pf.S.lastReplay.fell.length : 0");
+        if (fell) {
+          const played = await Promise.all(pages.map(pg => waitFor(() => ev(pg, "window.__pf.replayLog.indexOf(" + JSON.stringify(shotId) + ") !== -1"), 'replay played', 5000).catch(() => false)));
+          check(played.every(Boolean), 'instant replay played on every screen after knock-off ' + shotId);
+          const live = await ev(pages[1], "document.getElementById('statusTxt').textContent.indexOf('Instant replay') === 0");
+          if (live && opts.shots && !opts._replayShot) { opts._replayShot = 1; await sleep(900); await pages[1].screenshot({ path: path.join(SHOTS, '13-replay.png') }); }
+          if (live) {
+            // one player skips it by tapping the desk
+            const skipper = pages[1];
+            const box = await skipper.$eval('#desk', c => { const r = c.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 20 }; });
+            await skipper.mouse.click(box.x, box.y);
+            await waitFor(() => ev(skipper, "document.getElementById('statusTxt').textContent.indexOf('Instant replay') !== 0"), 'tap skips replay', 3000);
+          }
+          for (const pg of pages) await waitFor(() => ev(pg, "document.getElementById('statusTxt').textContent.indexOf('Instant replay') !== 0"), 'replay finished', 12000);
+          replays++;
+        }
+      }
       // everyone agrees on the result
       const hp = JSON.stringify((await ev(host, 'window.__pf.H.match')).pens.map(p => [p.id, p.out, Math.round(p.x * 100), Math.round(p.y * 100)]));
       for (let i = 1; i < n; i++) {
@@ -152,17 +173,9 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     }
     check(framesSeen > 0, 'watchers received streamed frames');
     for (const pg of pages) await waitFor(() => pg.$('#winner'), 'winner shown everywhere');
-    // XP is awarded once per match, on every player's own device
-    for (const pg of pages) {
-      await waitFor(() => pg.$('#xpCard'), 'XP card shown');
-      const prof = await ev(pg, "JSON.parse(localStorage.getItem('penfight.profile'))");
-      check(prof.matches === (opts._matchesBefore || 0) + 1 && prof.xp > 5000, 'profile updated once: ' + prof.matches + ' matches, ' + prof.xp + ' xp');
-    }
-    const xpAgain = await ev(pages[1], "JSON.parse(localStorage.getItem('penfight.profile')).xp");
-    await pages[1].evaluate(() => window.__pf.S.st && (window.__pf.S.st = Object.assign({}, window.__pf.S.st)));
+
     if (opts.shots) await pages[1].screenshot({ path: path.join(SHOTS, '07-match-over.png') });
     // rematch
-    check((await ev(pages[1], "JSON.parse(localStorage.getItem('penfight.profile')).xp")) === xpAgain, 'XP not double counted');
     await host.click('#rematchBtn');
     for (const pg of pages) await waitFor(() => ev(pg, "!!window.__pf.S.st.match && window.__pf.S.st.match.phase === 'aim' && window.__pf.S.st.match.round === 1"), 'rematch started everywhere');
     // reaction travels
@@ -172,20 +185,88 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     // skip a turn by host when the shooter is someone else
     const t0 = await ev(host, 'window.__pf.H.match.turn');
     if (t0 !== idOf[0]) { await host.click('#cf-skip'); await host.click('#cf-skip'); await waitFor(async () => (await ev(host, 'window.__pf.H.match.turn')) !== t0, 'host skip'); }
-    console.log('  online ' + n + ' players' + (opts.teams ? ' (teams)' : '') + ': ' + w.name + ' won' + (opts.teams ? ' ' + fm.teamScore.join('-') : ' ' + fm.players.map(p => p.name + ' ' + p.score).join(', ')) + ' after ' + shots + ' shots over ' + rounds.size + ' rounds' + (sawSpin ? ', spin shots included' : ''));
+    console.log('  online ' + n + ' players' + (opts.teams ? ' (teams)' : '') + ': ' + w.name + ' won' + (opts.teams ? ' ' + fm.teamScore.join('-') : ' ' + fm.players.map(p => p.name + ' ' + p.score).join(', ')) + ' after ' + shots + ' shots over ' + rounds.size + ' rounds, ' + replays + ' instant replays' + (sawSpin ? ', spin shots included' : ''));
     for (const pg of pages) await pg.context().close();
   }
 
-  async function freshProfile() {
-    const pg = await newPage('fresh', 400, 900, true);
+  async function practiceVsBots() {
+    const pg = await newPage('practice', 400, 900);
     await pg.goto(URL);
-    const locked = await pg.$$eval('#skinPick .skinb', bs => bs.filter(b => b.disabled).map(b => b.dataset.skin));
-    check(JSON.stringify(locked.sort()) === JSON.stringify(['gold', 'green', 'pencil', 'pink']), 'fresh profile: only the 3 starter pens are open, locked: ' + locked);
-    await pg.click('#caseD summary');
-    check(/Lv 1/.test(await pg.textContent('#caseD')), 'fresh profile is level 1');
-    await pg.screenshot({ path: path.join(SHOTS, '12-fresh-home.png'), fullPage: true });
+    await pg.fill('#nameIn', 'Ab');
+    await pg.click('#pracBots [data-v="2"]');
+    await pg.click('#pracLevel [data-v="easy"]');
+    await pg.click('#practiceStart');
+    await waitFor(() => pg.$('#desk'), 'practice desk');
+    let myShots = 0, botShots = 0, replayClicked = false;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 240000) {
+      const m = await ev(pg, 'window.__pf.H.match');
+      if (m.phase === 'over') break;
+      if (m.phase !== 'aim') { await sleep(80); continue; }
+      const cur = m.players.find(p => p.id === m.turn);
+      if (cur.bot) {
+        // the bot shows its aim before flicking
+        const sawAim = await waitFor(() => ev(pg, "!!window.__pf.S.aim || window.__pf.H.match.phase !== 'aim'"), 'bot aims', 6000).catch(() => false);
+        if (botShots === 0) { check(sawAim, 'bot shows its aim'); await pg.screenshot({ path: path.join(SHOTS, '14-bot-aiming.png') }); }
+        await waitFor(() => ev(pg, "window.__pf.H.match.turnNo !== " + m.turnNo + " || window.__pf.H.match.phase !== 'aim'"), 'bot flicks', 8000);
+        botShots++;
+        continue;
+      }
+      // a replay may be playing: wait for it before flicking
+      await waitFor(() => ev(pg, "document.getElementById('statusTxt').textContent.indexOf('Instant replay') !== 0"), 'replay over', 12000);
+      if (!replayClicked && await pg.$('#replayBtn')) {
+        replayClicked = true;
+        await pg.click('#replayBtn');
+        check(/Instant replay/.test(await pg.textContent('#statusTxt')), 'replay button replays the last shot');
+        await pg.mouse.click(...(await pg.$eval('#desk', c => { const r = c.getBoundingClientRect(); return [r.left + r.width / 2, r.top + 30]; })));
+      }
+      const foes = m.pens.filter(p => !p.out && p.id !== m.turn);
+      const tp = foes[Math.floor(Math.random() * foes.length)], mp = m.pens.find(p => p.id === m.turn);
+      await flick(pg, m.turn, tp.id, Math.random() < 0.5 ? 1 : Math.min(1, Math.hypot(tp.x - mp.x, tp.y - mp.y) / 7 + 0.45), (Math.random() - 0.5) * 0.4);
+      await waitFor(() => ev(pg, "window.__pf.H.match.turnNo !== " + m.turnNo + " || window.__pf.H.match.phase !== 'aim'"), 'my flick', 5000).catch(() => {});
+      myShots++;
+    }
+    const fm = await ev(pg, 'window.__pf.H.match');
+    check(fm.phase === 'over', 'practice match finished');
+    check(botShots > 0 && myShots > 0, 'both sides played');
+    console.log('  practice vs 2 easy bots: ' + (fm.players.find(p => p.id === fm.winner) || {}).name + ' won; ' + myShots + ' human flicks, ' + botShots + ' bot flicks; replay button ' + (replayClicked ? 'used' : 'not needed'));
     await pg.context().close();
-    console.log('  fresh profile: 4 pens locked, level 1');
+  }
+  async function onlineWithBot() {
+    const host = await newPage('bhost', 400, 880), guest = await newPage('bguest', 400, 880);
+    await host.goto(URL); await host.fill('#nameIn', 'Ab'); await host.click('#createBtn');
+    await waitFor(() => ev(host, "window.__pf.S.conn === 'open'"), 'room open');
+    const code = await ev(host, 'window.__pf.S.room');
+    await guest.goto(URL + '#' + code); await waitFor(() => guest.$('#codeIn'), 'join'); await guest.fill('#nameIn', 'Riya'); await guest.click('#joinBtn');
+    await waitFor(async () => (await host.textContent('#seatCount')).trim() === '2 / 5', 'guest seated');
+    await host.click('#addBot-hard');
+    await waitFor(async () => (await host.textContent('#seatCount')).trim() === '3 / 5', 'bot seated');
+    const botId = await ev(host, 'window.__pf.S.st.roster.find(r => r.bot).id');
+    await host.click('[data-bot="' + botId + '"]');           // hard -> easy
+    await waitFor(() => ev(guest, "(window.__pf.S.st.roster.find(r => r.bot) || {}).bot === 'easy'"), 'bot level change reached guest');
+    await host.screenshot({ path: path.join(SHOTS, '15-lobby-with-bot.png'), fullPage: true });
+    await host.click('#cfgTarget [data-v="1"]'); await host.click('#cfgTimer [data-v="0"]');
+    await host.click('#startBtn');
+    let guard = 0, botTurns = 0;
+    while (guard++ < 300) {
+      const m = await ev(host, 'window.__pf.H.match');
+      if (m.phase === 'over') break;
+      if (m.phase !== 'aim') { await sleep(80); continue; }
+      const cur = m.players.find(p => p.id === m.turn);
+      if (cur.bot) {
+        if (botTurns === 0) check(await waitFor(() => ev(guest, "!!window.__pf.S.aim"), 'guest sees bot aim', 6000).catch(() => false), 'guest sees the bot aiming live');
+        await waitFor(() => ev(host, "window.__pf.H.match.turnNo !== " + m.turnNo + " || window.__pf.H.match.phase !== 'aim'"), 'bot turn', 9000); botTurns++; continue;
+      }
+      const pg = cur.id === (await ev(host, 'window.__pf.S.me')) ? host : guest;
+      await waitFor(() => ev(pg, "document.getElementById('statusTxt') && document.getElementById('statusTxt').textContent.indexOf('Instant replay') !== 0 && window.__pf.S.st.match.turnNo === " + m.turnNo), 'ready to flick', 14000);
+      const foes = m.pens.filter(p => !p.out && p.id !== m.turn); const tp = foes[0], mp = m.pens.find(p => p.id === m.turn);
+      await flick(pg, m.turn, tp.id, Math.random() < 0.5 ? 1 : Math.min(1, Math.hypot(tp.x - mp.x, tp.y - mp.y) / 7 + 0.45), (Math.random() - 0.5) * 0.4);
+      await waitFor(() => ev(host, "window.__pf.H.match.turnNo !== " + m.turnNo + " || window.__pf.H.match.phase !== 'aim'"), 'human flick', 6000).catch(() => {});
+    }
+    const fm = await ev(host, 'window.__pf.H.match');
+    check(fm.phase === 'over' && botTurns > 0, 'online match with a bot finished (' + botTurns + ' bot turns)');
+    console.log('  online room with a computer player: ' + (fm.players.find(p => p.id === fm.winner) || {}).name + ' won after ' + botTurns + ' bot turns');
+    await host.context().close(); await guest.context().close();
   }
   async function localMatch() {
     const pg = await newPage('local', 1100, 900);
@@ -207,7 +288,7 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
       shots++;
     }
     if (!(await pg.$('#winner'))) { const m = await ev(pg, 'window.__pf.H.match'); console.log('    local not finished: round ' + m.round + ' phase ' + m.phase + ' scores ' + m.players.map(p => p.score) + ' log: ' + m.log.slice(-4).join(' | ')); }
-    check(await pg.$('#winner'), 'local match finished');
+    check(await waitFor(() => pg.$('#winner'), 'winner after replay', 15000).catch(() => null), 'local match finished');
     console.log('  one-device 3 players: ' + (await pg.textContent('#winner')) + ' after ' + shots + ' shots');
     const ov = await ev(pg, 'document.documentElement.scrollWidth > innerWidth + 1');
     check(!ov, 'no horizontal scroll');
@@ -215,11 +296,13 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
   }
   try {
     if (process.env.LOCAL_ONLY) { await localMatch(); throw 'done'; }
+    if (process.env.TEAMS_ONLY) { for (let k = 0; k < 2; k++) await onlineMatch(4, { teams: true, target: 2 }); await practiceVsBots(); throw 'done'; }
     await onlineMatch(5, { shots: true, reload: true, target: 1 });
     await onlineMatch(2, { target: 1 });
     await onlineMatch(4, { teams: true, target: 2, shots: true });
     await localMatch();
-    await freshProfile();
+    await practiceVsBots();
+    await onlineWithBot();
   } catch (e) { if (e !== 'done') { fails++; console.log('  ERROR ' + e.stack); } }
   check(errors.length === 0, 'page errors:\n    ' + errors.slice(0, 10).join('\n    '));
   await browser.close(); web.close(); psrv.close();

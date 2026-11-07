@@ -342,5 +342,49 @@ test('random team matches finish with the winning team at the target', () => {
   }
   console.log('  simulated ' + n + ' team matches (2v1, 2v2, 3v2)');
 });
+
+/* ---------- computer players ---------- */
+test('bots make legal, varied shots and never act out of turn', () => {
+  const m = PF.newMatch({ players: P(4).map((p, i) => ({ ...p, bot: i ? 'normal' : undefined })), rng: seeded(31) });
+  assert.strictEqual(PF.botPlan(m, 'p1', 'normal', seeded(1)), null, 'not its turn');
+  const dirs = [];
+  for (let k = 0; k < 10; k++) {
+    const plan = PF.botPlan(m, 'p0', 'normal', seeded(50 + k));
+    assert.ok(plan && PF.checkShot(m, 'p0', plan), 'legal plan');
+    assert.ok(plan.think >= 700 && plan.think <= 1800, 'thinks like a person');
+    dirs.push(plan.dir);
+  }
+  const mean = dirs.reduce((a, b) => a + b, 0) / dirs.length;
+  const sd = Math.sqrt(dirs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / dirs.length);
+  assert.ok(sd > 0.15, 'same position, different plans (spread ' + sd.toFixed(2) + ' rad)');
+  assert.ok(m.pens.every(p => !p.out) && m.phase === 'aim' && m.turnNo === 1, 'planning does not touch the real match');
+});
+test('harder bots win more, and bot matches always finish', () => {
+  let hard = 0, games = 24;
+  for (let g = 0; g < games; g++) {
+    const rng = seeded(900 + g);
+    const lv = g % 2 ? ['hard', 'easy'] : ['easy', 'hard'];
+    const m = PF.newMatch({ players: [{ id: 'a', name: 'A', skin: PF.SKINS[g % 7].id, bot: lv[0] }, { id: 'b', name: 'B', skin: PF.SKINS[(g + 3) % 7].id, bot: lv[1] }], rng, cfg: { target: 1 } });
+    let guard = 0;
+    while (m.phase !== 'over') {
+      assert.ok(guard++ < 300, 'bot match did not finish');
+      if (m.phase === 'roundover') { PF.startRound(m, rng); continue; }
+      const me = m.players.find(p => p.id === m.turn);
+      assert.ok(PF.simulateShot(m, m.turn, PF.botPlan(m, m.turn, me.bot, rng)), 'bot shot rejected');
+    }
+    if (m.players.find(p => p.id === m.winner).bot === 'hard') hard++;
+  }
+  assert.ok(hard / games >= 0.7, 'hard beat easy ' + hard + '/' + games);
+  console.log('  hard bot beat easy bot ' + hard + '/' + games);
+});
+test('bots play team matches and avoid knocking teammates', () => {
+  const rng = seeded(77);
+  const m = PF.newMatch({ players: [0, 1, 2, 3].map(i => ({ id: 'p' + i, name: 'N' + i, skin: PF.SKINS[i].id, team: i % 2, bot: 'hard' })), cfg: { teams: true, target: 1 }, rng });
+  let guard = 0;
+  while (m.phase !== 'over' && guard++ < 300) { if (m.phase === 'roundover') { PF.startRound(m, rng); continue; } PF.simulateShot(m, m.turn, PF.botPlan(m, m.turn, 'hard', rng)); }
+  assert.strictEqual(m.phase, 'over');
+  const mates = Object.values(m.stats).reduce((a, s) => a + s.mate, 0), kos = Object.values(m.stats).reduce((a, s) => a + s.ko, 0);
+  assert.ok(kos > mates, 'knock-offs ' + kos + ' vs teammates hit ' + mates);
+});
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

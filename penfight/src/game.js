@@ -142,7 +142,7 @@ const PF = (function () {
       v: 1,
       id: opts.id || ('m' + Math.floor(rng() * 1e9).toString(36)),
       cfg: cfg,
-      players: opts.players.map(function (p) { const q = { id: p.id, name: cleanName(p.name), skin: skinById(p.skin).id, score: 0 }; if (cfg.teams) q.team = p.team; return q; }),
+      players: opts.players.map(function (p) { const q = { id: p.id, name: cleanName(p.name), skin: skinById(p.skin).id, score: 0 }; if (cfg.teams) q.team = p.team; if (BOT_LEVELS[p.bot]) q.bot = p.bot; return q; }),
       stats: (function () { const o = {}; opts.players.forEach(function (p) { o[p.id] = { ko: 0, self: 0, mate: 0 }; }); return o; })(),
       table: tableFor(n),
       teamScore: cfg.teams ? [0, 0] : null,
@@ -449,12 +449,78 @@ const PF = (function () {
   /* pull (0..1 of the power meter) -> impulse. Distance grows with speed squared, so this keeps the meter linear. */
   function impulseForPull(pull, skinId) { return Math.sqrt(Math.max(0, Math.min(1, pull))) * penSpec(skinId || 'blue').maxImpulse; }
 
+  /* ---------- computer players ----------
+     A bot plays each candidate flick on a copy of the desk with the real physics, scores what happens,
+     then picks among the good options at random (softmax with a temperature) and adds aim/power wobble.
+     So it is never the same twice, and harder bots look at more options and choose more sharply. */
+  const BOT_LEVELS = {
+    easy:   { cands: 14, temp: 60, aim: 0.10, power: 0.14, think: [900, 1700] },
+    normal: { cands: 30, temp: 24, aim: 0.05, power: 0.07, think: [800, 1500] },
+    hard:   { cands: 60, temp: 8,  aim: 0.02, power: 0.03, think: [700, 1300] }
+  };
+  function sideOf(m, id) { return m.teamScore ? 't' + teamOf(m, id) : id; }
+  function edgeDist(m, p) { const T = m.table; return Math.min(T.w / 2 - Math.abs(p.x), T.h / 2 - Math.abs(p.y)); }
+  function botScore(before, after, me) {
+    const mine = sideOf(before, me);
+    let s = 0;
+    after.pens.forEach(function (p) {
+      const was = penOf(before, p.id);
+      if (!was || was.out) return;
+      const foe = sideOf(before, p.id) !== mine;
+      if (p.out) s += p.id === me ? -160 : foe ? 100 : -70;
+      else if (p.id === me) { const d = edgeDist(after, p); s -= Math.max(0, 1.6 - d) * 45; s += Math.min(d, 3) * 2; }
+      else if (foe) s += Math.max(0, 2.2 - edgeDist(after, p)) * 14;
+      else s -= Math.max(0, 1.4 - edgeDist(after, p)) * 15;
+    });
+    if (after.phase === 'roundover' || after.phase === 'over') {
+      const iWon = after.teamScore ? after.roundTeam !== null && ('t' + after.roundTeam) === mine : after.roundWinner === me;
+      s += iWon ? 250 : -120;
+    }
+    return s;
+  }
+  function gauss(rng) { let u = 0, v = 0; while (u === 0) u = rng(); while (v === 0) v = rng(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+  function botPlan(m, me, level, rng) {
+    rng = rng || Math.random;
+    if (!m || m.phase !== 'aim' || m.turn !== me) return null;
+    const L = BOT_LEVELS[level] || BOT_LEVELS.normal;
+    const mp = penOf(m, me), skin = m.players.find(function (q) { return q.id === me; }).skin, sp = penSpec(skin);
+    const foes = alivePens(m).filter(function (p) { return p.id !== me && sideOf(m, p.id) !== sideOf(m, me); });
+    const cands = [];
+    for (let i = 0; i < L.cands; i++) {
+      let dir, pull;
+      if (foes.length && rng() < 0.85) {
+        const t = foes[Math.floor(rng() * foes.length)];
+        dir = Math.atan2(t.y - mp.y, t.x - mp.x) + (rng() - 0.5) * 0.5;
+        const full = predict(mp, { lx: 0, ix: Math.cos(dir) * sp.maxImpulse, iy: Math.sin(dir) * sp.maxImpulse }, skin).dist || 1;
+        pull = Math.min(1, (Math.hypot(t.x - mp.x, t.y - mp.y) + 0.4 + rng() * 3.2) / full);
+      } else { dir = rng() * Math.PI * 2; pull = 0.12 + rng() * 0.5; }          // reposition
+      cands.push({ dir: dir, pull: Math.max(0.06, pull), lx: (rng() - 0.5) * sp.len * 0.8 });
+    }
+    const scored = cands.map(function (c) {
+      const mm = JSON.parse(JSON.stringify(m));
+      const J = impulseForPull(c.pull, skin);
+      simulateShot(mm, me, { lx: c.lx, ix: Math.cos(c.dir) * J, iy: Math.sin(c.dir) * J, turnNo: mm.turnNo });
+      return { c: c, s: botScore(m, mm, me) };
+    });
+    const top = Math.max.apply(null, scored.map(function (x) { return x.s; }));
+    const w = scored.map(function (x) { return Math.exp((x.s - top) / L.temp); });
+    let r = rng() * w.reduce(function (a, b) { return a + b; }, 0), pick = scored[0];
+    for (let i = 0; i < scored.length; i++) { r -= w[i]; if (r <= 0) { pick = scored[i]; break; } }
+    const dir = pick.c.dir + gauss(rng) * L.aim;
+    const pull = Math.max(0.05, Math.min(1, pick.c.pull * (1 + gauss(rng) * L.power)));
+    const J = impulseForPull(pull, skin);
+    return { lx: round3(pick.c.lx), ix: Math.cos(dir) * J, iy: Math.sin(dir) * J, turnNo: m.turnNo,
+      pull: pull, dir: dir, think: L.think[0] + rng() * (L.think[1] - L.think[0]), expected: pick.s };
+  }
+  const BOT_NAMES = ['Chintu', 'Pinky', 'Bunty', 'Golu', 'Tinku', 'Babli', 'Monu', 'Guddu'];
+
   function standings(m) {
     return m.players.slice().sort(function (a, b) { return b.score - a.score; });
   }
   function isOverFor(m) { return m.phase === 'over'; }
 
   return {
+    botPlan: botPlan, BOT_LEVELS: BOT_LEVELS, BOT_NAMES: BOT_NAMES,
     TEAMS: TEAMS, balanceTeams: balanceTeams, teamOf: teamOf, aliveSides: aliveSides, isOverFor: isOverFor,
     TABLE: TABLE, PEN: PEN, MAX_IMPULSE: MAX_IMPULSE, MAX_TRAVEL: MAX_TRAVEL, penSpec: penSpec, specOf: specOf, deskFriction: deskFriction, _resetSpecs: resetSpecs, predict: predict, impulseForPull: impulseForPull, MIN_PLAYERS: MIN_PLAYERS, MAX_PLAYERS: MAX_PLAYERS, DT: DT, SKINS: SKINS,
     skinById: skinById, defaultConfig: defaultConfig, normalizeConfig: normalizeConfig, startPositions: startPositions, onTable: onTable, tableFor: tableFor,

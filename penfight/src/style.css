@@ -192,6 +192,11 @@ input[type=text], select { min-height: 46px; padding: 9px 13px; border-radius: 1
 .xplines li span:last-child { font-weight: 800; }
 .unlocked { margin: 0; font-weight: 800; color: var(--accent); }
 
+/* bots */
+.botb { cursor: default; border: 0; text-transform: capitalize; background: color-mix(in srgb, var(--accent) 14%, var(--surface)); color: var(--accent); }
+button.botb { cursor: pointer; min-height: 26px; }
+.addbot { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 10px; }
+
 /* teams */
 .teamb { font-style: normal; font-size: 11px; font-weight: 800; padding: 2px 9px; border-radius: 99px; color: #fff; border: 0; text-transform: uppercase; letter-spacing: .05em; }
 button.teamb { cursor: pointer; min-height: 28px; }

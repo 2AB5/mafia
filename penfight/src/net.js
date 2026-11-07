@@ -60,7 +60,7 @@ function hostBoot() {
 }
 function localBegin(players, cfg) {
   H.local = true; H.peer = null; H.conns.clear();
-  H.room = ''; H.myId = ''; H.roster = players.map(function (p, i) { return { id: 'L' + i, token: '', name: cleanName(p.name) || 'Player ' + (i + 1), skin: p.skin, team: p.team }; });
+  H.room = ''; H.myId = ''; H.roster = players.map(function (p, i) { return { id: 'L' + i, token: '', name: cleanName(p.name) || 'Player ' + (i + 1), skin: p.skin, team: p.team, bot: p.bot }; });
   H.cfg = PF.normalizeConfig(cfg);
   S.isHost = true; S.screen = 'local'; S.room = ''; S.conn = 'open';
   hostEnsureLoop();
@@ -164,6 +164,26 @@ function hostRebalance() {
   const map = PF.balanceTeams(H.roster.map(function (r) { return { id: r.id, team: r.team }; }));
   H.roster.forEach(function (r) { r.team = map[r.id]; });
 }
+const REPLAY_SPEED = 0.45;
+function hostAddBot(level) {
+  if (H.match || H.roster.length >= PF.MAX_PLAYERS) return;
+  const used = {}; H.roster.forEach(function (r) { used[r.name] = true; });
+  const free = PF.BOT_NAMES.filter(function (n) { return !used[n]; });
+  const name = free.length ? free[Math.floor(secureRng() * free.length)] : hostUniqueName('Bot');
+  const skins = PF.SKINS.map(function (k) { return k.id; }).filter(function (k) { return !H.roster.some(function (r) { return r.skin === k; }); });
+  const r = { id: 'b' + randId(7), token: '', name: name, skin: skins.length ? skins[Math.floor(secureRng() * skins.length)] : 'blue', bot: PF.BOT_LEVELS[level] ? level : 'normal' };
+  H.roster.push(r);
+  hostRebalance();
+  hostChanged();
+}
+function hostCycleBot(id) {
+  if (H.match) return;
+  const r = H.roster.find(function (x) { return x.id === id && x.bot; });
+  if (!r) return;
+  const order = ['easy', 'normal', 'hard'];
+  r.bot = order[(order.indexOf(r.bot) + 1) % order.length];
+  hostChanged();
+}
 function hostSetTeam(id, team) {
   if (H.match || !H.cfg.teams || (team !== 0 && team !== 1)) return;
   const r = H.roster.find(function (x) { return x.id === id; });
@@ -173,14 +193,14 @@ function hostSetTeam(id, team) {
   r.team = team;
   hostChanged();
 }
-function hostArmTurn() { H.deadline = H.cfg.turnSecs ? Date.now() + H.cfg.turnSecs * 1000 : 0; H.aim = null; }
+function hostArmTurn(graceMs) { H.deadline = H.cfg.turnSecs ? Date.now() + H.cfg.turnSecs * 1000 + (graceMs || 0) : 0; H.aim = null; H.bot = null; H.botNotBefore = Date.now() + (graceMs || 0); }
 function hostStart() {
   const n = H.roster.length;
   if (n < PF.MIN_PLAYERS || n > PF.MAX_PLAYERS) { setErr('You need ' + PF.MIN_PLAYERS + ' to ' + PF.MAX_PLAYERS + ' players.'); return; }
   if (H.cfg.teams && n < 3) { setErr('Teams need at least 3 players.'); return; }
   hostRebalance();
   try {
-    H.match = PF.newMatch({ players: H.roster.map(function (r) { return { id: r.id, name: r.name, skin: r.skin, team: r.team }; }), cfg: H.cfg, rng: secureRng });
+    H.match = PF.newMatch({ players: H.roster.map(function (r) { return { id: r.id, name: r.name, skin: r.skin, team: r.team, bot: r.bot }; }), cfg: H.cfg, rng: secureRng });
   } catch (e) { setErr(e.message); return; }
   H.sim = null; H.offlineSince = {};
   hostArmTurn();
@@ -207,7 +227,7 @@ function hostAim(pid, a) {
   } else a = null;
   H.aim = a;
   if (!H.local) hostBroadcast({ t: 'aim', a: a }, pid);
-  if (pid !== H.myId && !H.local) { S.aim = a; }
+  if (pid !== H.myId || H.local) S.aim = a;
 }
 const REACTIONS = ['😂', '😱', '🔥', '👏', '😤', '💀'];
 function hostReact(pid, e) {
@@ -254,6 +274,7 @@ function hostOnline() {
   const on = {};
   if (H.local) { H.roster.forEach(function (r) { on[r.id] = true; }); return on; }
   on[H.myId] = true;
+  H.roster.forEach(function (r) { if (r.bot) on[r.id] = true; });
   H.conns.forEach(function (rec) { if (rec.pid && rec.conn.open) on[rec.pid] = true; });
   return on;
 }
@@ -275,15 +296,19 @@ function hostLoop() {
     if (H.frameClock >= 1 / 30 || fellAny.length || H.sim.settled()) {
       H.frameClock = 0;
       const poses = H.sim.poses(m).map(function (p) { return [Math.round(p.x * 1000) / 1000, Math.round(p.y * 1000) / 1000, Math.round(p.a * 1000) / 1000, p.out ? 1 : 0]; });
-      const fr = { t: 'f', k: m.turnNo, p: poses, h: Math.round(hits * 100) / 100, fall: fellAny };
+      const fr = { t: 'f', k: m.turnNo, st: Math.round(H.sim.t * 1000) / 1000, p: poses, h: Math.round(hits * 100) / 100, fall: fellAny };
       if (!H.local) hostBroadcast(fr);
+      recordFrame(fr);
       onFrameEvents(fr);
     }
     if (H.sim.settled()) {
+      const simT = H.sim.t;
       const res = PF.settle(m, H.sim.poses(m));
       H.sim = null; H.preShot = null;
-      if (res.roundOver) H.nextRoundAt = Date.now() + 3800;
-      hostArmTurn();
+      // knock-offs get an instant replay on every screen: give it time before the next turn / round
+      const replayMs = res.fell.length ? Math.min(9000, simT / REPLAY_SPEED * 1000 + 1400) : 0;
+      if (res.roundOver) H.nextRoundAt = Date.now() + 3800 + replayMs;
+      hostArmTurn(replayMs);
       hostChanged();
     }
     return;
@@ -291,6 +316,8 @@ function hostLoop() {
   if (!m) return;
   const t = Date.now();
   if (m.phase === 'aim') {
+    const cur = m.players.find(function (p) { return p.id === m.turn; });
+    if (cur && cur.bot) { hostBotTurn(m, cur, t); return; }
     const on = hostOnline();
     if (!on[m.turn]) { if (!H.offlineSince[m.turn]) H.offlineSince[m.turn] = t; }
     else delete H.offlineSince[m.turn];
@@ -302,6 +329,22 @@ function hostLoop() {
   } else if (m.phase === 'roundover' && t >= H.nextRoundAt) {
     PF.startRound(m, secureRng);
     hostArmTurn(); hostChanged();
+  }
+}
+/* a bot "thinks", shows its aim growing like a person dragging, then flicks */
+function hostBotTurn(m, cur, t) {
+  if (!H.bot || H.bot.k !== m.turnNo) {
+    if (t < (H.botNotBefore || 0)) return;
+    const plan = PF.botPlan(m, m.turn, cur.bot, secureRng);
+    if (!plan) { PF.skipTurn(m, ' passed.'); hostArmTurn(); hostChanged(); return; }
+    H.bot = { k: m.turnNo, plan: plan, start: t, lastAim: 0 };
+  }
+  const b = H.bot, el = t - b.start, th = b.plan.think;
+  if (el >= th) { H.bot = null; hostShoot(m.turn, b.plan); return; }
+  if (el > th * 0.35 && t - b.lastAim > 60) {
+    b.lastAim = t;
+    const f = Math.min(1, (el - th * 0.35) / (th * 0.5)), sp = PF.specOf(m, m.turn), pw = b.plan.pull * f;
+    hostAim(m.turn, { lx: b.plan.lx / (sp.len / 2), dx: Math.cos(b.plan.dir) * pw, dy: Math.sin(b.plan.dir) * pw });
   }
 }
 function hostChanged() { hostSave(); hostPublishSoon(); }
@@ -316,7 +359,7 @@ function hostSnapshot(pid) {
   const m = H.match;
   return {
     t: 'state', you: pid || null, local: H.local, room: H.room, hostId: H.myId,
-    roster: H.roster.map(function (r) { return { id: r.id, name: r.name, skin: r.skin, team: H.cfg.teams ? r.team : null, on: !!on[r.id] }; }),
+    roster: H.roster.map(function (r) { return { id: r.id, name: r.name, skin: r.skin, team: H.cfg.teams ? r.team : null, bot: r.bot || null, on: !!on[r.id] }; }),
     cfg: H.cfg, match: m,
     deadlineIn: m && m.phase === 'aim' && H.deadline ? Math.max(0, H.deadline - Date.now()) : null,
     nextRoundIn: m && m.phase === 'roundover' ? Math.max(0, H.nextRoundAt - Date.now()) : null
@@ -461,8 +504,25 @@ function resetRoomState() {
 }
 let onStateHook = function () {};
 let onFrameEvents = function () {};
+/* every screen keeps the frames of the shot in flight, so it can replay it afterwards */
+function recordFrame(fr) {
+  if (!S.rec || S.rec.k !== fr.k) S.rec = { k: fr.k, frames: [] };
+  if (typeof fr.st === 'number') S.rec.frames.push({ t: fr.st, p: fr.p });
+  if (S.rec.frames.length > 900) S.rec.frames.splice(0, 1);
+}
+function buildReplay(pm, m) {
+  if (!S.rec || S.rec.k !== pm.turnNo || S.rec.frames.length < 2 || !pm.lastShot) return null;
+  const first = { t: 0, p: pm.pens.map(function (p) { return [p.x, p.y, p.a, p.out ? 1 : 0]; }) };
+  const fell = pm.pens.filter(function (p, i) { return !p.out && m.pens[i] && m.pens[i].out; }).map(function (p) { return p.id; });
+  return { id: pm.id + ':' + pm.turnNo, matchId: pm.id, round: pm.round, by: pm.lastShot.by, power: pm.lastShot.power,
+    frames: [first].concat(S.rec.frames), fell: fell, roundOver: m.phase === 'roundover' || m.phase === 'over' };
+}
 function applyState(d) {
   const prev = S.st;
+  if (prev && prev.match && d.match && prev.match.id === d.match.id && prev.match.phase === 'roll' && d.match.phase !== 'roll') {
+    const r = buildReplay(prev.match, d.match);
+    if (r) { S.lastReplay = r; if (r.fell.length && SET.replays) startReplay(r); }
+  }
   d.deadline = d.deadlineIn !== null && d.deadlineIn !== undefined ? Date.now() + d.deadlineIn : null;
   d.nextRound = d.nextRoundIn !== null && d.nextRoundIn !== undefined ? Date.now() + d.nextRoundIn : null;
   S.st = d; S.me = d.you || null;
@@ -476,6 +536,7 @@ function onFrame(d) {
   if (!m || d.k !== m.turnNo || !Array.isArray(d.p)) return;
   S.frames.push({ at: performance.now(), p: d.p });
   if (S.frames.length > 40) S.frames.splice(0, S.frames.length - 40);
+  recordFrame(d);
   onFrameEvents(d);
 }
 const Net = {

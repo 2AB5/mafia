@@ -31,7 +31,21 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
 
   async function controls() {
     const pg = await newPage('keys', { viewport: { width: 1280, height: 800 } });
-    await pg.goto(URL); await pg.fill('#nameIn', 'Ab'); await pg.click('#pracFmt [data-v="1v1"]'); await pg.click('#pracLvl [data-v="easy"]'); await pg.click('#practiceBtn');
+    await pg.goto(URL);
+    // rebind Smash to M, pick low touch sensitivity, and check both survive a reload
+    await pg.click('#setD summary');
+    await pg.click('#bind-smash'); await waitFor(async () => /Press a key/.test(await pg.textContent('#bind-smash')), 'waiting for a key', 2000);
+    await pg.keyboard.press('KeyM');
+    await waitFor(async () => (await pg.textContent('#bind-smash')).trim() === 'M', 'smash bound to M', 2000);
+    await pg.click('#bind-drop'); await pg.keyboard.press('KeyM');
+    check((await pg.textContent('#bind-drop')).trim() === 'M' && (await pg.textContent('#bind-smash')).trim() === 'K', 'binding a taken key swaps the two');
+    await pg.click('#bind-smash'); await pg.keyboard.press('KeyM');
+    await pg.click('#bind-drop'); await pg.keyboard.press('KeyK');
+    await pg.click('#sensPick [data-v="low"]');
+    await pg.screenshot({ path: path.join(SHOTS, '09-settings.png'), fullPage: true });
+    await pg.reload();
+    check(await ev(pg, "window.__bd.Input.binds.smash === 'KeyM' && window.__bd.S.sens === 'low'"), 'key binding and sensitivity are remembered');
+    await pg.fill('#nameIn', 'Ab'); await pg.click('#pracFmt [data-v="1v1"]'); await pg.click('#pracLvl [data-v="easy"]'); await pg.click('#practiceBtn');
     await waitFor(() => ev(pg, '!!window.__bd.H.match'), 'practice starts');
     const me = await ev(pg, 'window.__bd.S.me');
     // receiving or serving, park everything so we can test calmly
@@ -48,21 +62,34 @@ const ev = (pg, expr) => pg.evaluate(new Function('return (' + expr + ')'));
     const setUp = (z) => pg.evaluate((z) => { const m = window.__bd.H.match, p = m.players.find(q => q.id === window.__bd.S.me); m.phase = 'rally'; m.lastHitTeam = 1; m.landed = null; p.swing = 0; p.energy = 100; m.shuttle = { x: p.x + 0.3, y: p.y - 0.3, z: z, vx: 0, vy: 0, vz: 0.4 }; }, z);
     await setUp(2.6); await sleep(150);
     check(/Smash/.test(await pg.textContent('#btn-smash')), 'smash button says Smash when the shuttle is high');
-    await pg.keyboard.press('KeyL');
-    await waitFor(() => ev(pg, "window.__bd.H.match.events.some(e => e.k === 'hit' && e.kind === 'smash' && e.by === window.__bd.S.me)"), 'L smashes', 3000).catch(() => check(false, 'L key smashes'));
+    check((await pg.textContent('#key-smash')).trim() === 'M', 'the Smash button shows the new key');
+    await pg.keyboard.press('KeyL'); await sleep(150);
+    check(!(await ev(pg, "window.__bd.H.match.events.some(e => e.k === 'hit' && e.kind === 'smash' && e.by === window.__bd.S.me)")), 'the old key no longer smashes');
+    await pg.keyboard.press('KeyM');
+    await waitFor(() => ev(pg, "window.__bd.H.match.events.some(e => e.k === 'hit' && e.kind === 'smash' && e.by === window.__bd.S.me)"), 'M smashes', 3000).catch(() => check(false, 'the rebound key smashes'));
     await setUp(0.45); await sleep(150);
     check(await ev(pg, "document.getElementById('btn-smash').classList.contains('danger')"), 'smash button warns when the shuttle is too low');
     await pg.screenshot({ path: path.join(SHOTS, '03-low-warning.png') });
     await pg.dispatchEvent('#btn-clear', 'pointerdown');
     await waitFor(() => ev(pg, "window.__bd.H.match.events.some(e => e.k === 'hit' && e.kind === 'lift' && e.by === window.__bd.S.me)"), 'tap lifts', 3000).catch(() => check(false, 'tapping Clear on a low shuttle lifts it'));
     // serving: force my serve and use the three serves
-    for (const [key, kind] of [['KeyJ', 'serveLong'], ['KeyK', 'serveShort'], ['KeyL', 'serveFlick']]) {
+    for (const [key, kind] of [['KeyJ', 'serveLong'], ['KeyK', 'serveShort'], ['KeyM', 'serveFlick']]) {
       await pg.evaluate(() => { const m = window.__bd.H.match; m.serveSide = m.players.find(p => p.id === window.__bd.S.me).side; m.nextServer = [0, 0]; window.__bd.BD.startServe(m); });
       await sleep(250);
       if (key === 'KeyJ') check(/High serve/.test(await pg.textContent('#btn-clear')), 'buttons show serve names');
       await pg.keyboard.press(key);
       await waitFor(() => ev(pg, "window.__bd.H.match.events.some(e => e.k === 'hit' && e.kind === '" + kind + "')"), kind, 3000).catch(() => check(false, key + ' serves ' + kind));
     }
+    // the joystick: drag in the stick zone; movement eases in smoothly
+    await pg.evaluate(() => { const m = window.__bd.H.match; m.phase = 'rally'; m.lastHitTeam = 1; m.landed = null; m.shuttle = { x: 0, y: -3, z: 9, vx: 0, vy: 0, vz: 0 }; const p = m.players.find(q => q.id === window.__bd.S.me); p.x = 0; p.y = 3.5; p.energy = 100; });
+    const zb = await pg.$eval('#stickZone', el => { const r = el.getBoundingClientRect(); return { x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 }; });
+    const P0 = await pos();
+    await pg.mouse.move(zb.x, zb.y); await pg.mouse.down(); await pg.mouse.move(zb.x, zb.y + 80, { steps: 4 });
+    await sleep(60); const P1 = await pos(); await sleep(400); const P2 = await pos();
+    await pg.mouse.up();
+    const d1 = Math.hypot(P1[0] - P0[0], P1[1] - P0[1]), d2 = Math.hypot(P2[0] - P1[0], P2[1] - P1[1]) / (400 / 60);
+    check(d2 > 0.03, 'dragging the joystick moves the player');
+    check(d1 < d2 * 1.2, 'movement eases in rather than jumping to full speed');
     // now let the autopilot play a quick game to 5 and check the end screen
     await pg.evaluate(() => { window.__bd.H.match.cfg.target = 5; window.__bdAuto = 'hard'; });
     await waitFor(async () => (await M(pg)).phase === 'over', 'practice game ends', 180000);

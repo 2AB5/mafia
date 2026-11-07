@@ -61,16 +61,32 @@ function homeScreen() {
   nodes.push(h('p', { class: 'moregames' }, 'More games: ', h('a', { href: '../', text: 'Mafia' }), ' · ', h('a', { href: '../penfight/', text: 'Pen Fight' }), ' · ', h('a', { href: '../pictionary/', text: 'Pictionary' })));
   return nodes;
 }
+/* controls: touch sensitivity and keyboard bindings (shared by the home page and the in-game panel) */
+function controlsPanel() {
+  const rows = Input.ACTIONS.map(function (a) {
+    const waiting = Input.capture === a[0];
+    return h('div', { class: 'bindrow' }, h('span', { class: 'bindname', text: a[1] }),
+      h('button', { type: 'button', class: 'bindkey' + (waiting ? ' wait' : ''), id: 'bind-' + a[0], 'aria-label': 'Change key for ' + a[1], onclick: function () { Input.capture = waiting ? null : a[0]; render(); } }, waiting ? 'Press a key… (Esc cancels)' : Input.keyName(Input.binds[a[0]]) + (['up', 'down', 'left', 'right'].indexOf(a[0]) !== -1 ? '  (or arrow)' : '')));
+  });
+  return h('div', { class: 'ctlpanel', id: 'ctlPanel' },
+    seg('Touch joystick sensitivity', 'sensPick', [['low', 'Low (smooth)'], ['medium', 'Medium'], ['high', 'High (quick)']], S.sens, function (v) { S.sens = v; store('sens', v); render(); }),
+    h('p', { class: 'hint', text: 'Low: drag further for full speed, movement eases in gently. High: small flicks move you fast.' }),
+    h('span', { class: 'lbl', text: 'Keyboard: click an action, then press the key you want' }),
+    h('div', { class: 'binds', id: 'binds' }, rows),
+    h('div', { class: 'row' }, btn('Reset keys', function () { Input.resetBinds(); Input.capture = null; render(); }, { kind: 'ghost small', id: 'resetKeys' })),
+    seg('Landing guide (an ✕ where the shuttle will come down)', 'guidePick', [[true, 'On'], [false, 'Off']], S.guide, function (v) { S.guide = v; store('guide', v ? '1' : '0'); render(); }));
+}
 function settingsCard() {
-  return h('details', { class: 'card', id: 'setD' }, h('summary', { class: 'sumh', text: 'Settings' }),
-    seg('Landing guide (an ✕ where the shuttle will come down)', 'guidePick', [[true, 'On'], [false, 'Off']], S.guide, function (v) { S.guide = v; store('guide', v ? '1' : '0'); render(); }),
+  return h('details', { class: 'card', id: 'setD' }, h('summary', { class: 'sumh', text: 'Settings & controls' }),
+    controlsPanel(),
     seg('Theme', 'themePick', [['dark', 'Dark'], ['light', 'Light']], currentTheme(), function (v) { setTheme(v); render(); }));
 }
+function keysText(a) { return Input.keyName(Input.binds[a]); }
 function howCard(open) {
   return h('details', { class: 'card how', id: 'howD', open: open ? true : null }, h('summary', { class: 'sumh', text: 'How to play' }),
     h('ul', { class: 'howlist' },
-      h('li', {}, h('b', { text: 'Move: ' }), touchy() ? 'put your thumb down on the left and drag, like a joystick.' : 'WASD or the arrow keys (or drag on the left on a touch screen).'),
-      h('li', {}, h('b', { text: 'Hit: ' }), 'Clear (J), Drop (K), Smash (L). Swing when the green ring lights up around you, which means the shuttle is in reach. The direction you’re pushing as you hit aims the shot left or right, short or deep.'),
+      h('li', {}, h('b', { text: 'Move: ' }), touchy() ? 'put your thumb down on the left and drag, like a joystick (sensitivity is in Settings).' : keysText('up') + keysText('left') + keysText('down') + keysText('right') + ' or the arrow keys (or drag on the left on a touch screen).'),
+      h('li', {}, h('b', { text: 'Hit: ' }), 'Clear (' + keysText('clear') + '), Drop (' + keysText('drop') + '), Smash (' + keysText('smash') + '). Change keys in Settings. Swing when the green ring lights up around you, which means the shuttle is in reach. The direction you’re pushing as you hit aims the shot left or right, short or deep.'),
       h('li', {}, h('b', { text: 'Height meter: ' }), 'the gauge on the right shows how high the shuttle is. 🟢 2 m and up is the smash zone (above 2.5 m a jump smash). 🟡 is for drives, drops and clears. 🔴 below about 0.9 m, lift it or play a net shot; a smash from there goes into the net. The buttons relabel themselves to show what you’ll actually play.'),
       h('li', {}, h('b', { text: 'Serves: ' }), 'Clear = forehand high serve (deep), Drop = backhand short serve (just over the net), Smash = backhand flick serve (looks short, goes deep). Serve from the right court on an even score, into the diagonal box.'),
       h('li', {}, h('b', { text: 'Energy: ' }), 'sprinting, jumping and smashing drain it; standing still recovers it. Tired players run slower and smash softer. In 1 v 2 the solo player recovers faster.'),
@@ -178,14 +194,16 @@ function gameScreen() {
   nodes.push(stage);
   const tools = [];
   tools.push(h('div', { class: 'reacts' }, REACTIONS.map(function (e) { return h('button', { type: 'button', class: 'react', 'aria-label': 'React ' + e, onclick: function () { Net.react(e); } }, e); })));
+  if (me && touchy()) tools.push(h('p', { class: 'runhint', text: 'Drag on the left side to run' }));
   if (me) tools.push(h('div', { class: 'energy', 'aria-label': 'Your energy' }, h('span', { class: 'elbl', text: 'Energy' }), h('span', { class: 'ebar' }, h('span', { class: 'efill hi', id: 'myEnergy' }))));
   if (!me) tools.push(h('p', { class: 'watching', id: 'watching', text: '👁 You’re watching. You can join when this game ends.' }));
-  const ctl = [h('button', { type: 'button', class: 'btn small ghost', id: 'guideBtn', 'aria-pressed': S.guide ? 'true' : 'false', onclick: function () { S.guide = !S.guide; store('guide', S.guide ? '1' : '0'); render(); } }, 'Landing guide: ' + (S.guide ? 'on' : 'off'))];
+  const ctl = [h('button', { type: 'button', class: 'btn small ghost', id: 'ctlBtn', 'aria-expanded': OPEN.ctl ? 'true' : 'false', onclick: function () { OPEN.ctl = !OPEN.ctl; render(); } }, '⚙ Controls'), h('button', { type: 'button', class: 'btn small ghost', id: 'guideBtn', 'aria-pressed': S.guide ? 'true' : 'false', onclick: function () { S.guide = !S.guide; store('guide', S.guide ? '1' : '0'); render(); } }, 'Landing guide: ' + (S.guide ? 'on' : 'off'))];
   if (S.isHost && !S.local) ctl.push(confirmBtn('end', 'End game', 'Confirm: end game', hostEndGame, 'small'));
   if (S.local) ctl.push(confirmBtn('quit', 'Quit practice', 'Confirm: quit', function () { hostClose(); }, 'small'));
   if (!S.isHost) ctl.push(confirmBtn('leave', 'Leave', 'Confirm: leave', function () { Net.leave(); }, 'small'));
   tools.push(h('div', { class: 'row ctl' }, ctl));
   nodes.push(h('div', { class: 'below' }, tools));
+  if (OPEN.ctl) nodes.push(card(h('div', { class: 'cardhead' }, h('h3', { text: 'Controls' }), btn('Done', function () { OPEN.ctl = false; Input.capture = null; render(); }, { kind: 'small', id: 'ctlDone' })), controlsPanel()));
   return nodes;
 }
 function overScreen(m) {
@@ -291,6 +309,12 @@ function boot() {
   toastEl = h('div', { class: 'toast', id: 'toast', role: 'status', hidden: true });
   add(root, hdrEl, connEl, mainEl);
   document.body.appendChild(toastEl);
+  // Safari on iPad/iPhone ignores the viewport lock for pinch and double-tap, so block those gestures during a game
+  const inGame = function () { return document.documentElement.classList.contains('ingame'); };
+  ['gesturestart', 'gesturechange'].forEach(function (t) { document.addEventListener(t, function (e) { if (inGame()) e.preventDefault(); }, { passive: false }); });
+  let lastTouchEnd = 0;
+  document.addEventListener('touchend', function (e) { const now = Date.now(); if (inGame() && now - lastTouchEnd < 350 && !(e.target && e.target.closest && e.target.closest('input, a'))) e.preventDefault(); lastTouchEnd = now; }, { passive: false });
+  document.addEventListener('touchmove', function (e) { if (inGame() && e.touches && e.touches.length > 1) e.preventDefault(); }, { passive: false });
   document.addEventListener('visibilitychange', function () {
     syncWake();
     if (document.visibilityState !== 'visible' || S.screen !== 'room' || S.local) return;

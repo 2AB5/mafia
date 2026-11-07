@@ -11,7 +11,8 @@ const BD = (function () {
   const GRACE = 0.16;                          // a landing is final only after this long: covers network delay on late saves
   const POINT_PAUSE = 1.7, SERVE_WAIT = 8;
   const LEVELS = {
-    easy: { react: 0.38, speed: 0.74, noise: 0.55, smash: 0.3, smart: 0.25, eager: 0.25, err: 0.12, fool: 0.9 },
+    // easy bots also take a moment to get going (accel, m/s²) and misjudge the flight a little (miss, metres)
+    easy: { react: 0.48, speed: 0.64, accel: 10, miss: 0.3, noise: 0.6, smash: 0.25, smart: 0.2, eager: 0.25, err: 0.13, fool: 0.9 },
     normal: { react: 0.24, speed: 0.88, noise: 0.32, smash: 0.5, smart: 0.6, eager: 0.4, err: 0.06, fool: 0.6 },
     hard: { react: 0.13, speed: 1.0, noise: 0.17, smash: 0.72, smart: 0.9, eager: 0.55, err: 0.03, fool: 0.4 }
   };
@@ -488,6 +489,7 @@ const BD = (function () {
         }
         plan.spot = best ? { x: best.x, y: best.y } : mine.length ? { x: mine[mine.length - 1].x, y: mine[mine.length - 1].y } : { x: f.x, y: f.y };
         if (plan.fooled) { plan.spot.x += (rng() - 0.5) * 2.4; plan.spot.y += (rng() - 0.5) * 2.0; }
+        else if (L.miss) { plan.spot.x += (rng() + rng() - 1) * L.miss; plan.spot.y += (rng() + rng() - 1) * L.miss; }
         plan.t0 = t0;
       }
     }
@@ -521,7 +523,13 @@ const BD = (function () {
   /* apply a bot's movement for one step (bots are simulated on the host) */
   function botMove(m, p, think, dt) {
     if (m.phase === 'serve' && p.id === m.server) return;
-    p.vx = think.mx; p.vy = think.my;
+    const L = LEVELS[p.bot] || LEVELS.normal;
+    if (L.accel) {
+      // easy bots can't start or stop instantly
+      const ax = think.mx - (p.vx || 0), ay = think.my - (p.vy || 0), a = Math.hypot(ax, ay), lim = L.accel * dt;
+      const k = a > lim ? lim / a : 1;
+      p.vx = (p.vx || 0) + ax * k; p.vy = (p.vy || 0) + ay * k;
+    } else { p.vx = think.mx; p.vy = think.my; }
     p.x += p.vx * dt; p.y += p.vy * dt;
     clampToSide(m, p);
   }

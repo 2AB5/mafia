@@ -188,6 +188,16 @@ test('bots play whole matches with real rallies, in every format', () => {
   }
   console.log('  ' + lines.join('; '));
 });
+test('easy bots are gentler: slower to react and move, and they can’t start instantly', () => {
+  const L = BD.LEVELS;
+  assert.ok(L.easy.react > L.normal.react && L.easy.speed < L.normal.speed && L.easy.err > L.normal.err);
+  const m = BD.newMatch({ players: two('easy', 'normal'), rng: seeded(40) });
+  m.phase = 'rally';
+  const e = BD.playerOf(m, 'a'), n = BD.playerOf(m, 'b');
+  BD.botMove(m, e, { mx: 4, my: 0 }, 1 / 60); BD.botMove(m, n, { mx: 4, my: 0 }, 1 / 60);
+  assert.ok(Math.hypot(e.vx, e.vy) < 0.3, 'easy bot accelerates');
+  assert.strictEqual(n.vx, 4, 'normal bot unchanged');
+});
 test('hard bots beat easy bots most of the time', () => {
   let hard = 0, n = 16;
   for (let k = 0; k < n; k++) { const r = botMatch(k % 2 ? two('hard', 'easy') : two('easy', 'hard'), 300 + k); if (r.m.winner === (k % 2 ? 0 : 1)) hard++; }

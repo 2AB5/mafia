@@ -127,20 +127,51 @@ const View = (function () {
 
 /* ===== Input: joystick (touch), keyboard, and the three shot buttons ===== */
 const Input = (function () {
-  const I = { jx: 0, jy: 0, keys: {}, stick: null, orient: 'port' };
-  function vec() {
-    let x = I.jx, y = I.jy;
-    const k = I.keys;
-    const kx = (k.ArrowRight || k.KeyD ? 1 : 0) - (k.ArrowLeft || k.KeyA ? 1 : 0), ky = (k.ArrowDown || k.KeyS ? 1 : 0) - (k.ArrowUp || k.KeyW ? 1 : 0);
-    if (kx || ky) { const d = Math.hypot(kx, ky); x = kx / d; y = ky / d; }
-    return [x, y];
+  const I = { jx: 0, jy: 0, keys: {}, stick: null, orient: 'port', sv: [0, 0], capture: null };
+  /* key bindings: one rebindable key per action; the arrow keys always move as well */
+  const DEFAULT_KEYS = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', clear: 'KeyJ', drop: 'KeyK', smash: 'KeyL' };
+  const ARROWS = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' };
+  I.ACTIONS = [['up', 'Move up'], ['down', 'Move down'], ['left', 'Move left'], ['right', 'Move right'], ['clear', 'Clear / lift'], ['drop', 'Drop / net shot'], ['smash', 'Smash / drive']];
+  I.binds = Object.assign({}, DEFAULT_KEYS, storeJSON('keys') || {});
+  I.saveBinds = function () { storeJSON('keys', I.binds); };
+  I.resetBinds = function () { I.binds = Object.assign({}, DEFAULT_KEYS); storeJSON('keys', null); };
+  I.keyName = function (code) {
+    if (!code) return '–';
+    const named = { Space: 'Space', ShiftLeft: 'L-Shift', ShiftRight: 'R-Shift', ControlLeft: 'L-Ctrl', ControlRight: 'R-Ctrl', AltLeft: 'L-Alt', AltRight: 'R-Alt', Enter: 'Enter', Tab: 'Tab', Semicolon: ';', Quote: '\'', Comma: ',', Period: '.', Slash: '/', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Minus: '-', Equal: '=', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' };
+    if (named[code]) return named[code];
+    if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+    if (/^Digit\d$/.test(code)) return code.slice(5);
+    if (/^Numpad\d$/.test(code)) return 'Num ' + code.slice(6);
+    return code;
+  };
+  function down(action) { const k = I.keys; return !!(k[I.binds[action]] || (ARROWS[action] && k[ARROWS[action]])); }
+  /* touch sensitivity: how far you drag for full speed, and how quickly movement follows your thumb */
+  const SENS = { low: { r: 72, ease: 7, curve: 1.6 }, medium: { r: 54, ease: 11, curve: 1.35 }, high: { r: 40, ease: 16, curve: 1.15 } };
+  I.sens = function () { return SENS[S.sens] || SENS.medium; };
+  function raw() {
+    const kx = (down('right') ? 1 : 0) - (down('left') ? 1 : 0), ky = (down('down') ? 1 : 0) - (down('up') ? 1 : 0);
+    if (kx || ky) { const d = Math.hypot(kx, ky); return [kx / d, ky / d, true]; }
+    // joystick: dead zone near the centre, then a gentle curve for fine control
+    const m = Math.min(1, Math.hypot(I.jx, I.jy));
+    if (m < 0.12) return [0, 0, false];
+    const f = Math.pow((m - 0.12) / 0.88, I.sens().curve) / m;
+    return [I.jx * f, I.jy * f, false];
+  }
+  function vec(dt) {
+    const r = raw();
+    // ease toward the input so starts and stops are smooth instead of jerky
+    const letGo = !r[0] && !r[1];
+    const k = Math.min(1, (dt || 0.016) * (r[2] ? 14 : I.sens().ease) * (letGo ? 3 : 1));     // stopping is quicker than starting
+    I.sv[0] += (r[0] - I.sv[0]) * k; I.sv[1] += (r[1] - I.sv[1]) * k;
+    if (Math.abs(I.sv[0]) < 0.01 && Math.abs(I.sv[1]) < 0.01 && !r[0] && !r[1]) I.sv = [0, 0];
+    return I.sv;
   }
   // screen direction → my own frame (right, forward)
-  function frame() { const v = vec(); return I.orient === 'port' ? [v[0], -v[1]] : [v[1], v[0]]; }
-  I.aim = function () { const f = frame(); return [f[0], f[1]]; };
+  function frame(dt) { const v = dt === undefined ? I.sv : vec(dt); return I.orient === 'port' ? [v[0], -v[1]] : [v[1], v[0]]; }
+  I.aim = function () { const r = raw(); const v = (r[0] || r[1]) ? r : I.sv; return I.orient === 'port' ? [v[0], -v[1]] : [v[1], v[0]]; };
   I.target = function (m, p, dt) {
-    const f = frame(); const mag = Math.min(1, Math.hypot(f[0], f[1]));
-    if (mag < 0.08) return null;
+    const f = frame(dt); const mag = Math.min(1, Math.hypot(f[0], f[1]));
+    if (mag < 0.03) return null;
     const s = p.side === 0 ? 1 : -1;
     const wx = f[0] * s, wy = -f[1] * s, d = Math.hypot(wx, wy) || 1;
     const sp = BD.speedCap(m, p) * mag;
@@ -151,19 +182,30 @@ const Input = (function () {
     Net.swing(button);
     const el = document.getElementById('btn-' + button); if (el) { el.classList.add('hit'); setTimeout(function () { el.classList.remove('hit'); }, 140); }
   };
-  const KEYMAP = { KeyJ: 'clear', Space: 'clear', KeyK: 'drop', KeyL: 'smash', KeyZ: 'clear', KeyX: 'drop', KeyC: 'smash' };
+  function shotFor(code) { return ['clear', 'drop', 'smash'].find(function (a) { return I.binds[a] === code; }) || null; }
   function playing() { return S.screen === 'room' && View.m && View.m.phase !== 'over' && (View.me || (S.isHost && H.match && BD.playerOf(H.match, H.myId))); }
   window.addEventListener('keydown', function (e) {
+    // waiting for a new key binding?
+    if (I.capture) {
+      e.preventDefault(); e.stopPropagation();
+      if (e.code !== 'Escape') {
+        const act = I.capture;
+        Object.keys(I.binds).forEach(function (a) { if (a !== act && I.binds[a] === e.code) I.binds[a] = I.binds[act]; });   // swap if taken
+        I.binds[act] = e.code; I.saveBinds();
+      }
+      I.capture = null; render(); return;
+    }
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
     if (!playing()) return;
-    if (KEYMAP[e.code]) { e.preventDefault(); if (!e.repeat) I.press(KEYMAP[e.code]); return; }
-    if (/^(Arrow|Key[WASD])/.test(e.code)) { e.preventDefault(); I.keys[e.code] = true; }
-  });
+    const shot = shotFor(e.code);
+    if (shot) { e.preventDefault(); if (!e.repeat) I.press(shot); return; }
+    const moves = Object.keys(ARROWS).some(function (a) { return I.binds[a] === e.code || ARROWS[a] === e.code; });
+    if (moves) { e.preventDefault(); I.keys[e.code] = true; }
+  }, true);
   window.addEventListener('keyup', function (e) { delete I.keys[e.code]; });
   window.addEventListener('blur', function () { I.keys = {}; I.jx = I.jy = 0; });
   /* a floating joystick: put your thumb down anywhere in the zone and drag */
   I.bindStick = function (zone, knobEl) {
-    const R = 52;
     zone.addEventListener('pointerdown', function (e) {
       if (I.stick) return;
       e.preventDefault();
@@ -174,13 +216,19 @@ const Input = (function () {
     zone.addEventListener('pointermove', function (e) {
       const st = I.stick; if (!st || st.id !== e.pointerId) return;
       e.preventDefault();
+      const R = I.sens().r;
       let dx = e.clientX - st.ox, dy = e.clientY - st.oy; const d = Math.hypot(dx, dy);
       if (d > R) { st.ox += dx * (1 - R / d); st.oy += dy * (1 - R / d); dx = e.clientX - st.ox; dy = e.clientY - st.oy; }
       I.jx = dx / R; I.jy = dy / R;
       place(knobEl, zone, st.ox, st.oy, e.clientX, e.clientY);
     });
-    const end = function (e) { const st = I.stick; if (!st || st.id !== e.pointerId) return; I.stick = null; I.jx = I.jy = 0; knobEl.style.display = 'none'; };
-    zone.addEventListener('pointerup', end); zone.addEventListener('pointercancel', end);
+    // let go however the touch ends: lifted, cancelled by the system, or capture lost
+    const end = function (e) { const st = I.stick; if (!st || (e && e.pointerId !== undefined && st.id !== e.pointerId)) return; I.stick = null; I.jx = I.jy = 0; knobEl.style.display = 'none'; };
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (t) { zone.addEventListener(t, end); window.addEventListener(t, end); });
+    window.addEventListener('blur', function () { end(); });
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState !== 'visible') end(); });
+    zone.addEventListener('touchend', function (e) { if (!e.touches || !e.touches.length) end(); });
+    ['selectstart', 'contextmenu', 'dragstart'].forEach(function (t) { zone.addEventListener(t, function (e) { e.preventDefault(); }); });
   };
   function place(knob, zone, ox, oy, x, y) {
     const r = zone.getBoundingClientRect();
@@ -406,10 +454,11 @@ const Controls = (function () {
   function ensure() {
     if (K.el) return K.el;
     const knob = h('div', { class: 'knob' }, h('span', { class: 'kdot' }));
-    const zone = h('div', { class: 'stickzone', id: 'stickZone', 'aria-label': 'Move: drag here' }, h('span', { class: 'stickhint', text: 'Drag here to run' }), knob);
+    const zone = h('div', { class: 'stickzone', id: 'stickZone', 'aria-label': 'Move: drag here' }, knob);
     Input.bindStick(zone, knob);
     const mk = function (b, label, key) {
-      const el = h('button', { type: 'button', class: 'shot ' + b, id: 'btn-' + b, 'aria-label': label }, h('span', { class: 'sl', text: label }), h('span', { class: 'sk', text: key }));
+      const el = h('button', { type: 'button', class: 'shot ' + b, id: 'btn-' + b, 'aria-label': label }, h('span', { class: 'sl', text: label }), h('span', { class: 'sk', id: 'key-' + b, text: Input.keyName(Input.binds[b]) }));
+      void key;
       el.addEventListener('pointerdown', function (e) { e.preventDefault(); Input.press(b); });
       el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
       K.btns[b] = el; return el;
@@ -422,6 +471,7 @@ const Controls = (function () {
   function update(m, n, mine) {
     if (!K.el || !K.el.isConnected || !mine) return;
     const s = n.shuttle; if (!s) return;
+    ['clear', 'drop', 'smash'].forEach(function (b) { const k = document.getElementById('key-' + b); const t = Input.keyName(Input.binds[b]); if (k && k.textContent !== t) k.textContent = t; });
     const serving = m.phase === 'serve' && m.server === S.me;
     ['clear', 'drop', 'smash'].forEach(function (b) {
       let label, risk = 'ok';

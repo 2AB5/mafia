@@ -133,6 +133,7 @@ const S = {
   confirm: null,
   sound: store('sound') !== '0',
   guide: store('guide') !== '0',
+  sens: ['low', 'medium', 'high'].indexOf(store('sens')) !== -1 ? store('sens') : 'medium',
   wantSeat: false, watchOnly: false
 };
 let render = function () {};
